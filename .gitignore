@@ -1,0 +1,39 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+tradex
+tradex-*
+
+# Go
+*.test
+*.out
+/vendor/
+go.work
+go.work.sum
+
+# Secrets & local config (never commit)
+*.env
+.env
+.env.*
+*-key.json
+*credentials*.json
+service-account*.json
+config/*.local.yaml
+secrets/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Logs & data
+*.log
+tmp/
+*.jsonl
+*.jsonl.gz
