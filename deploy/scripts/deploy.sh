@@ -37,8 +37,8 @@ sudo install -m 0644 deploy/systemd/tradex.service /etc/systemd/system/tradex.se
 sudo install -m 0644 deploy/systemd/tradex-failure-alert@.service /etc/systemd/system/tradex-failure-alert@.service
 sudo install -m 0644 deploy/systemd/tradex-heartbeat-check.service /etc/systemd/system/tradex-heartbeat-check.service
 sudo install -m 0644 deploy/systemd/tradex-heartbeat-check.timer /etc/systemd/system/tradex-heartbeat-check.timer
-sudo chmod 0750 deploy/systemd/tradex-failure-alert.py
-sudo chmod 0750 deploy/systemd/tradex-heartbeat-check.py
+sudo chmod 0755 deploy/systemd/tradex-failure-alert.py
+sudo chmod 0755 deploy/systemd/tradex-heartbeat-check.py
 sudo systemctl daemon-reload
 sudo systemctl enable --now tradex-heartbeat-check.timer
 # The service owns runtime heartbeat state; git/build files remain deploy-user owned.
