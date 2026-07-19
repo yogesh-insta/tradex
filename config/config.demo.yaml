@@ -149,7 +149,7 @@ calendar:          # 10-economic-calendar.md
     local_file: "data/calendar-state.json"
     gcs_object: "gs://tradex-demo-state/calendar-state.json"
     vm_refresh: 5m
-    staleness_max: 90m
+    staleness_max: 3h             # 2h Scheduler cadence plus delayed/failed-poll margin
     high_impact_only: true
     regions: ["EU", "US", "JP"]
     telegram_review: true
