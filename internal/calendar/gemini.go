@@ -151,10 +151,43 @@ func extractJSONObject(text string) string {
 		}
 		text = strings.TrimSpace(rest)
 	}
+	// Take the first brace-balanced object. LastIndex("}") wrongly swallows a
+	// second trailing object (Gemini sometimes emits }{...}), which yields
+	// "invalid character '{' after top-level value".
 	start := strings.Index(text, "{")
-	end := strings.LastIndex(text, "}")
-	if start < 0 || end <= start {
+	if start < 0 {
 		return ""
 	}
-	return text[start : end+1]
+	depth := 0
+	inString := false
+	escape := false
+	for i := start; i < len(text); i++ {
+		c := text[i]
+		if inString {
+			if escape {
+				escape = false
+				continue
+			}
+			if c == '\\' {
+				escape = true
+				continue
+			}
+			if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return text[start : i+1]
+			}
+		}
+	}
+	return ""
 }

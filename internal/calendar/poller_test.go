@@ -106,6 +106,19 @@ func TestParseGeminiJSON(t *testing.T) {
 	}
 }
 
+func TestParseGeminiJSONTrailingObject(t *testing.T) {
+	// Reproduces production: "invalid character '{' after top-level value"
+	text := `{"as_of":"2026-07-19T18:00:00Z","events":[{"region":"US","title":"CPI","impact":"high","time":"2026-07-22T12:30:00Z"}]}
+{"note":"extra grounding blob"}`
+	st, err := parseGeminiJSON(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Events) != 1 || st.Events[0].Title != "CPI" {
+		t.Fatalf("%+v", st)
+	}
+}
+
 func TestTelegramSendFailureSkipsWrite(t *testing.T) {
 	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"economicCalendar":[
