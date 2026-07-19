@@ -215,6 +215,39 @@ Per **FX account** (unified risk module, FX config profile):
 
 EU and FX accounts never share margin or daily P&L baselines.
 
+### 5.1 Architectural Blind Spots (analysis notes)
+
+Two live-edge risks to watch when tweaking windows / filters. Not blockers — notes for
+tuning and paper soak.
+
+**1. OANDA spread widening around the daily break**
+
+Spreads often spike drastically right before/after the **16:59–17:05 AEST** daily
+maintenance window. `trade_window_start` is **16:05 Tokyo (= 17:05 AEST)** — the first
+eligible M5 close sits exactly at reopen, so a flawed “breakout” can fire into a still-wide
+book if the quoted spread briefly looks tradable.
+
+| Already in place | Gap |
+| --- | --- |
+| Dual max-spread gate: `strategies.fx_trld.max_spread_pips` + `fx_risk.max_spread_pips` (demo/prod **1.5** pips; pip = 0.01 JPY) | No **post-break spread cooldown** (time-based hold after 17:05 AEST / 16:05 Tokyo) beyond the instantaneous pip check |
+| Window deliberately past OANDA AU maint (`16` / config) | Spike can still pass if spread ≤ 1.5 for one bar, then re-widen on fill |
+
+**Open / tweak ideas:** short post-break quiet (e.g. 5–15m after 16:05 Tokyo) before TRLD evaluates; tighten `max_spread_pips` for the first N bars of the window; log `spread_too_wide` reject rate near reopen (spec `19`).
+
+**2. Monday morning / weekend price gaps**
+
+OANDA often becomes tradable ~**08:00 AEST Monday**, while the global FX tape can print
+slightly earlier. The bot does **not** measure the Friday-close → Monday-open gap on
+`USD_JPY` mid; it only gates *when* trading is allowed.
+
+| Already in place | Gap |
+| --- | --- |
+| Friday hard flatten + Friday no-entry (`America/New_York`); weekend `fx_session_closed` | No **gap filter** on first Monday (or Sunday-reopen) bars vs Friday close |
+| `reopen_quiet_minutes: 30` after Sunday ~17:00 NY FX reopen | Quiet is clock-based only — does not reject large weekend gaps once the quiet ends |
+| Session `SkipWeekends`; no Sunday/Monday “reopen scalp” intent in §4.3 | Broker open lag vs global open is unmodeled; first Tokyo-session bars can inherit gap structure without an explicit invalidate |
+
+**Open / tweak ideas:** reject / pause if `|Mon_open − Fri_close|` exceeds N×ATR or N pips on the first eligible bars; extend quiet until spread *and* gap normalize; confirm OANDA practice vs live reopen vs NY Sunday 17:00 assumption in soak logs.
+
 ---
 
 ## 6. Validation before live money
