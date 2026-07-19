@@ -4,10 +4,9 @@
 
 Make the system's health legible and page a human before a silent failure costs money.
 Covers liveness, market-data staleness, execution failures, RAM↔OANDA reconciliation,
-and drawdown/limit monitoring. **Calendar review** messages go to Telegram today
-(`cmd/calendarpoller`). **Trade / session / breaker Telegram alerts** (Pub/Sub →
-Cloud Run notifier) are **deferred** — designed here, not yet wired. Metrics target
-**Cloud Monitoring** (also deferred behind `metrics.Registry`).
+and drawdown/limit monitoring. Calendar review and Tier 1 paper-trading alerts
+go to Telegram today. Metrics target **Cloud Monitoring** remains deferred behind
+`metrics.Registry`.
 
 ## Signals & alerts
 
@@ -21,23 +20,27 @@ Cloud Run notifier) are **deferred** — designed here, not yet wired. Metrics t
 | **Breaker tripped** | state → `SYSTEM_LOCKED` | high | notify: reason + that `RE_ARM` is required |
 | **Calendar fail-safe** | calendar stale/missing → blocking entries | warn | notify; check poller |
 | **Calendar pipeline fail** | Finnhub + Gemini both fail, or Telegram review send fails | warn | notify; keep last good state; see `10-economic-calendar.md` |
-| **VM liveness** | heartbeat missing > `liveness_timeout` | high | page (external uptime check) |
+| **VM liveness** | `status.json` heartbeat missing/stale > `liveness_timeout` | high | Telegram (VM systemd timer) |
 | **Publisher saturation** | telemetry buffer drop-oldest firing | warn | notify; Pub/Sub health |
 
 ## Behavior
 
-1. **Heartbeat:** the VM emits a liveness metric every `heartbeat_interval`; an external
-   Cloud Monitoring uptime/alert policy pages if it stops (covers total VM death).
+1. **Heartbeat:** the trader writes the canonical `status.json` locally and to
+   `observability.status_object` every `heartbeat_interval`. The VM's
+   `tradex-heartbeat-check.timer` fetches the GCS object every minute and sends
+   a Telegram alert if `as_of` is stale, missing, or unreadable. Alerts repeat
+   no more than once per 15 minutes while unhealthy.
 2. **Reconciliation:** every `reconcile_interval`, compare in-RAM open trades to
    `executor.OpenTrades()`. On drift, **OANDA is truth**: adopt its view, re-attach
    `ManagementPolicy` where possible (from ledger), alert with the diff.
 3. **Metrics (Cloud Monitoring):** stream up/last-tick age, reconnect count, order
    success/fail counts + latency, open positions, daily realized P&L, current state,
    calendar freshness (`as_of` age), publisher buffer depth.
-4. **Telegram notifier (Cloud Run) — deferred:** will consume alert events from Pub/Sub
-   and format concise messages (state changes, breaker, execution errors, daily P&L
-   summary at session end). Until then, operators use the control-plane `STATUS`
-   webhook, logs, and the read-only dashboard (`14-dashboard.md`).
+4. **Telegram lifecycle notifier:** the trader decorates its asynchronous event
+   publisher with a bounded Telegram queue. It sends boot ACTIVE, trade opened,
+   trade closed, process-state, and account breaker-lock messages. Network calls
+   are never made on the synchronous order path. A systemd `OnFailure=` unit
+   also sends a process-failure message if `tradex.service` enters failed state.
 5. **Calendar review (poller) — implemented:** after each successful Finnhub/Gemini
    compile, `cmd/calendarpoller` POSTs a review message to Telegram
    (`https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/sendMessage`) with source header
@@ -54,6 +57,8 @@ observability:
   heartbeat_interval: 30s
   liveness_timeout: 120s
   reconcile_interval: 20s
+  status_file: "data/status.json"
+  status_object: "gs://tradex-demo-state/status.json"
   reconnect_churn_window: 5m
   reconnect_churn_max: 5
   drawdown_warn: 120        # USD, warn before -150 breaker
@@ -74,14 +79,15 @@ observability:
 
 ## Acceptance criteria
 
-- Killing the VM triggers a liveness page within `liveness_timeout` (when Monitoring is
-  wired).
+- Stopping the trader causes the GCS heartbeat to become stale and triggers
+  Telegram within `liveness_timeout` plus the one-minute timer cadence.
 - Manually closing a trade at the OANDA console makes reconciliation detect the drift
   and adopt OANDA's view — without the loop erroring.
 - Approaching −$120 realized loss warns (when notifier is wired); −$150 trips the
   breaker and locks regardless.
 - Calendar poller review messages reach Telegram after a successful compile.
-- Trade/session Telegram alerts remain deferred until the Pub/Sub notifier lands.
+- Opening/closing a paper trade, booting ACTIVE, and breaker locks send Telegram
+  notifications without blocking order execution.
 
 ## Out of scope
 

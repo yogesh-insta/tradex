@@ -423,6 +423,10 @@ type ObservabilityConfig struct {
 	ReconcileInterval Duration       `yaml:"reconcile_interval"`
 	DrawdownWarn      float64        `yaml:"drawdown_warn"`
 	AlertTopic        string         `yaml:"alert_topic"`
+	// StatusFile and StatusObject are trader heartbeat targets. StatusObject is
+	// a gs:// URI, while StatusFile is an optional local diagnostic copy.
+	StatusFile        string         `yaml:"status_file"`
+	StatusObject      string         `yaml:"status_object"`
 	Telegram          TelegramConfig `yaml:"telegram"`
 }
 

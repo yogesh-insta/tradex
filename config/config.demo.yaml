@@ -168,6 +168,8 @@ observability:     # 12-observability-and-alerts.md
   heartbeat_interval: 30s
   liveness_timeout: 120s
   reconcile_interval: 20s
+  status_file: "data/status.json"
+  status_object: "gs://tradex-demo-state/status.json"
   drawdown_warn: 120
   alert_topic: "alerts"
   telegram:

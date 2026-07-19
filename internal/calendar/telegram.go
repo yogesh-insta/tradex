@@ -48,11 +48,17 @@ func (c *TelegramClient) SendCalendarReview(ctx context.Context, source string, 
 		return err
 	}
 	text := source + "\n\n```json\n" + string(bodyJSON) + "\n```"
+	return c.SendMessage(ctx, text)
+}
 
+// SendMessage posts a plain text message via Bot API sendMessage.
+func (c *TelegramClient) SendMessage(ctx context.Context, text string) error {
+	if c.BotToken == "" || c.ChatID == "" {
+		return fmt.Errorf("telegram: bot token or chat id empty")
+	}
 	payload := map[string]any{
-		"chat_id":    c.ChatID,
-		"text":       text,
-		"parse_mode": "Markdown",
+		"chat_id": c.ChatID,
+		"text":    text,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

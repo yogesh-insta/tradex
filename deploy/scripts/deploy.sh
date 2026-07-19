@@ -32,6 +32,16 @@ mkdir -p "${BIN_DIR}"
 go build -trimpath -ldflags="-s -w" -o "${BIN_DIR}/trader" ./cmd/trader
 go build -trimpath -ldflags="-s -w" -o "${BIN_DIR}/backtester" ./cmd/backtester
 
+echo "==> installing systemd failure alert"
+sudo install -m 0644 deploy/systemd/tradex.service /etc/systemd/system/tradex.service
+sudo install -m 0644 deploy/systemd/tradex-failure-alert@.service /etc/systemd/system/tradex-failure-alert@.service
+sudo install -m 0644 deploy/systemd/tradex-heartbeat-check.service /etc/systemd/system/tradex-heartbeat-check.service
+sudo install -m 0644 deploy/systemd/tradex-heartbeat-check.timer /etc/systemd/system/tradex-heartbeat-check.timer
+sudo chmod 0750 deploy/systemd/tradex-failure-alert.py
+sudo chmod 0750 deploy/systemd/tradex-heartbeat-check.py
+sudo systemctl daemon-reload
+sudo systemctl enable --now tradex-heartbeat-check.timer
+
 echo "==> validating config (fail fast before restart)"
 test -f "${APP_DIR}/config/config.${ENVIRONMENT}.yaml"
 

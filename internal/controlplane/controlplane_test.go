@@ -92,6 +92,19 @@ func TestAccountLocksDoNotChangeGlobalStateAndReArmClearsThem(t *testing.T) {
 	}
 }
 
+func TestAccountLockObserverFiresOnce(t *testing.T) {
+	m := NewMachine(types.StateActive, discard(), nil)
+	var got []string
+	m.SetOnAccountLock(func(account, reason string) {
+		got = append(got, account+":"+reason)
+	})
+	m.ForceLockAccount("fx", "daily_loss_breaker")
+	m.ForceLockAccount("fx", "daily_loss_breaker")
+	if len(got) != 1 || got[0] != "fx:daily_loss_breaker" {
+		t.Fatalf("lock observer = %#v", got)
+	}
+}
+
 func signedBody(t *testing.T, secret []byte, cmd Command) ([]byte, string) {
 	t.Helper()
 	raw, err := json.Marshal(cmd)

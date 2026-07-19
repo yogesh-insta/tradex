@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/yogesh-insta/tradex/internal/candles"
 	"github.com/yogesh-insta/tradex/internal/config"
 	"github.com/yogesh-insta/tradex/internal/controlplane"
+	"github.com/yogesh-insta/tradex/internal/dashboard"
 	"github.com/yogesh-insta/tradex/internal/execution"
 	"github.com/yogesh-insta/tradex/internal/logging"
 	"github.com/yogesh-insta/tradex/internal/marketdata"
@@ -30,6 +32,7 @@ import (
 	"github.com/yogesh-insta/tradex/internal/risk"
 	"github.com/yogesh-insta/tradex/internal/scheduler"
 	"github.com/yogesh-insta/tradex/internal/session"
+	"github.com/yogesh-insta/tradex/internal/status"
 	"github.com/yogesh-insta/tradex/internal/strategy"
 	"github.com/yogesh-insta/tradex/internal/strategy/eulove"
 	"github.com/yogesh-insta/tradex/internal/strategy/fxtrld"
@@ -60,7 +63,17 @@ func run() error {
 	log := logging.New("trader", cfg.Env, slog.LevelInfo)
 	log.Info("effective config", "config", cfg.Redacted())
 	mets := metrics.NewMemory()
-	pub := logging.NewLogPublisher(log)
+	var pub logging.Publisher = logging.NewLogPublisher(log)
+	if cfg.Observability.Telegram.BotToken != "" && cfg.Observability.Telegram.ChatID != "" {
+		pub = logging.NewTelegramPublisher(pub, &calendar.TelegramClient{
+			BotToken: cfg.Observability.Telegram.BotToken,
+			ChatID:   cfg.Observability.Telegram.ChatID,
+		}, log)
+	}
+	statusWriter := status.Writer{
+		LocalFile: cfg.Observability.StatusFile,
+		GCSObject: cfg.Observability.StatusObject,
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -102,6 +115,9 @@ func run() error {
 	machine := controlplane.NewMachine(types.StateActive, log, func(from, to types.SystemState, reason string) {
 		mets.Set("system_state_"+string(to), 1)
 		pub.Publish(types.TradeEvent{Type: "state_change", Reason: fmt.Sprintf("%s -> %s: %s", from, to, reason), At: time.Now().UTC()})
+	})
+	machine.SetOnAccountLock(func(account, reason string) {
+		pub.Publish(types.TradeEvent{Type: "breaker_locked", Account: account, Reason: reason, At: time.Now().UTC()})
 	})
 
 	// --- market data: one snapshot; one pricing stream per account ---
@@ -526,10 +542,11 @@ func run() error {
 	})
 	sched.Add(scheduler.Job{
 		Name: "heartbeat", Interval: cfg.Observability.HeartbeatInterval.D(), RunAtStart: true,
-		Fn: func(context.Context) error {
-			mets.Set("heartbeat_unix", float64(time.Now().Unix()))
+		Fn: func(jobCtx context.Context) error {
+			now := time.Now().UTC()
+			mets.Set("heartbeat_unix", float64(now.Unix()))
 			log.Info("heartbeat", "state", machine.State(), "metrics", mets.Snapshot())
-			return nil
+			return statusWriter.Write(jobCtx, buildStatusDoc(now, cfg, machine, consumer, loops))
 		},
 	})
 	wg.Add(1)
@@ -539,9 +556,13 @@ func run() error {
 	}()
 
 	log.Info("trader started", "host", cfg.OANDA.Host, "listen", cfg.ControlPlane.Listen)
+	pub.Publish(types.TradeEvent{
+		Type:   "state_change",
+		Reason: fmt.Sprintf("demo ACTIVE after boot; accounts: %s", activeAccountNames(cfg)),
+		At:     time.Now().UTC(),
+	})
 	<-ctx.Done()
 	log.Info("shutdown: flushing publisher and stopping goroutines")
-	pub.Flush()
 
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
@@ -550,6 +571,7 @@ func run() error {
 	case <-time.After(10 * time.Second):
 		log.Warn("shutdown timed out waiting for goroutines")
 	}
+	pub.Flush()
 	return nil
 }
 
@@ -605,6 +627,61 @@ func handleEvent(ctx context.Context, ev types.MarketEvent,
 	eng.MarkAccepted(*sig, now)
 	mets.Inc("orders_opened")
 	log.Info("order placed", "trade_id", trade.TradeID, "units", trade.Units)
+}
+
+func buildStatusDoc(now time.Time, cfg *config.Config, machine *controlplane.Machine,
+	consumer *marketdata.Consumer, loops map[string]*trademgmt.Loop) dashboard.StatusDoc {
+
+	doc := dashboard.StatusDoc{AsOf: now}
+	for _, ac := range cfg.Accounts {
+		if !ac.Active {
+			continue
+		}
+		state := string(machine.State())
+		if locked, _ := machine.AccountLock(ac.Name); locked {
+			state = string(types.StateSystemLock)
+		}
+		streamUp := true
+		stale := false
+		var maxAge time.Duration
+		for _, instrument := range ac.Instruments {
+			lastTick, ok := consumer.LastTickAt(instrument)
+			if !ok {
+				streamUp = false
+				stale = true
+				continue
+			}
+			age := now.Sub(lastTick)
+			if age > maxAge {
+				maxAge = age
+			}
+			if consumer.Stale(instrument, now) {
+				streamUp = false
+				stale = true
+			}
+		}
+		reconcileOK := false
+		if loop := loops[ac.Name]; loop != nil {
+			last := loop.LastReconcile()
+			reconcileOK = !last.IsZero() && now.Sub(last) <= 2*cfg.Mgmt.ReconcileInterval.D()
+		}
+		doc.Accounts = append(doc.Accounts, dashboard.AccountStatus{
+			Name: ac.Name, State: state, StreamUp: streamUp,
+			LastTickAgeMs: maxAge.Milliseconds(), LastHeartbeatAt: now,
+			LastReconcileOK: reconcileOK, MarketDataStale: stale,
+		})
+	}
+	return doc
+}
+
+func activeAccountNames(cfg *config.Config) string {
+	var names []string
+	for _, ac := range cfg.Accounts {
+		if ac.Active {
+			names = append(names, ac.Name)
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 func firstNonEmpty(vals ...string) string {

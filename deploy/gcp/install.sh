@@ -52,6 +52,11 @@ install -d "$INSTALL_ROOT/config"
 cp -f "$ROOT"/config/config.*.yaml "$INSTALL_ROOT/config/" 2>/dev/null || true
 cp -f "$ROOT/config/holidays.yaml" "$INSTALL_ROOT/config/" 2>/dev/null || true
 cp -f "$ROOT/deploy/systemd/tradex.service" /etc/systemd/system/tradex.service
+cp -f "$ROOT/deploy/systemd/tradex-failure-alert@.service" /etc/systemd/system/tradex-failure-alert@.service
+cp -f "$ROOT/deploy/systemd/tradex-heartbeat-check.service" /etc/systemd/system/tradex-heartbeat-check.service
+cp -f "$ROOT/deploy/systemd/tradex-heartbeat-check.timer" /etc/systemd/system/tradex-heartbeat-check.timer
+cp -f "$ROOT/deploy/systemd/"tradex-*.py "$INSTALL_ROOT/deploy/systemd/" 2>/dev/null || true
+chmod 750 "$INSTALL_ROOT"/deploy/systemd/*.py 2>/dev/null || true
 cp -f "$ROOT/deploy/scripts/deploy.sh" "$INSTALL_ROOT/deploy/scripts/" 2>/dev/null || true
 chmod 755 "$INSTALL_ROOT/deploy/scripts/deploy.sh" 2>/dev/null || true
 # Optional seed files (calendar fail-safe / local ledger samples)
@@ -87,6 +92,7 @@ if [[ -x "$INSTALL_ROOT/bin/trader" ]]; then
 fi
 
 systemctl daemon-reload
+systemctl enable --now tradex-heartbeat-check.timer
 
 if $ENABLE; then
   if [[ ! -x "$INSTALL_ROOT/bin/trader" ]]; then

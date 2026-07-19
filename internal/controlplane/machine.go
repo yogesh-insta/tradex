@@ -26,12 +26,22 @@ type Machine struct {
 
 	// onTransition fires after every state change (observability/alerts).
 	onTransition func(from, to types.SystemState, reason string)
+	// onAccountLock fires once when an account breaker is first tripped.
+	onAccountLock func(account, reason string)
 }
 
 // NewMachine starts in the given process-wide state. Boot recovery applies
 // breaker locks afterwards, once each account's ledger has been restored.
 func NewMachine(initial types.SystemState, log *slog.Logger, onTransition func(from, to types.SystemState, reason string)) *Machine {
 	return &Machine{state: initial, accountLocks: map[string]string{}, log: log, onTransition: onTransition}
+}
+
+// SetOnAccountLock registers the breaker-lock observer before the machine is
+// shared with the risk engines.
+func (m *Machine) SetOnAccountLock(fn func(account, reason string)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onAccountLock = fn
 }
 
 // State returns the current state (race-safe).
@@ -103,6 +113,9 @@ func (m *Machine) ForceLockAccount(account, reason string) {
 	}
 	m.accountLocks[account] = reason
 	m.log.Warn("account risk lock", "account", account, "reason", reason)
+	if m.onAccountLock != nil {
+		m.onAccountLock(account, reason)
+	}
 }
 
 // AccountLock reports whether an account is breaker-locked and why.

@@ -249,3 +249,11 @@ func (l *Loop) OpenTrades() []types.OpenTrade {
 	}
 	return out
 }
+
+// LastReconcile returns the time of the most recent successful broker
+// reconciliation. A zero time means the first reconciliation has not completed.
+func (l *Loop) LastReconcile() time.Time {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.lastReconcile
+}
