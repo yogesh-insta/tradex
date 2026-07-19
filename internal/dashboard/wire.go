@@ -53,6 +53,11 @@ func BuildFromConfig(ctx context.Context, cfg *config.Config, log *slog.Logger) 
 			MaxRetries:     2,
 		})
 		accounts = OANDAReader{Client: client}
+		accountIDs := make(map[string]string, len(d.Accounts))
+		for _, account := range d.Accounts {
+			accountIDs[account.Name] = account.OANDAID
+		}
+		oandaLedger := &OANDALedger{Client: client, AccountIDs: accountIDs}
 
 		fetcher := FileOrGCSFetcher{}
 		if needsGCS(calURI) || needsGCS(statusURI) {
@@ -70,15 +75,19 @@ func BuildFromConfig(ctx context.Context, cfg *config.Config, log *slog.Logger) 
 				return nil, fmt.Errorf("ledger file: %w", err)
 			}
 			ledger = fl
-		} else {
+		} else if d.BigQuery.Project != "" && d.BigQuery.Dataset != "" && d.BigQuery.Table != "" {
 			bq, err := bigquery.NewClient(ctx, d.BigQuery.Project)
 			if err != nil {
 				return nil, fmt.Errorf("bigquery client: %w", err)
 			}
-			ledger = &BigQueryLedger{
+			ledger = FallbackLedger{Primary: &BigQueryLedger{
 				Client: bq, Project: d.BigQuery.Project,
 				Dataset: d.BigQuery.Dataset, Table: d.BigQuery.Table,
-			}
+			}, Fallback: oandaLedger}
+		} else {
+			// Production-shaped deployments use OANDA history until the async
+			// trade ledger publisher is operating.
+			ledger = oandaLedger
 		}
 	}
 

@@ -139,10 +139,12 @@ places orders and **does not** expose control-plane commands (`FLATTEN` / `PAUSE
 | `GET /api/pl/daily?account=&from=&to=` | yes | Per-day series + 7d / all-time |
 
 Local sources: `dashboard.calendar_file` / `ledger_file` (dev). Cloud: GCS
-objects + BigQuery `trade_ledger` when configured. Optional `status.json` for
-engine heartbeat; without it the health panel degrades (amber) and does not invent
-state. Deploy: `deploy/docker/Dockerfile.dashboard` → Cloud Run (`PORT` honored);
-image CMD uses `config/config.dashboard.cloudrun.yaml`.
+calendar object plus live OANDA account/open-trade/`ORDER_FILL` transaction
+history; BigQuery `trade_ledger`, when configured, is preferred and falls back to
+OANDA when empty or unavailable. Optional `status.json` for engine heartbeat;
+without it the health panel degrades (amber) and does not invent state. Deploy:
+`deploy/docker/Dockerfile.dashboard` → Cloud Run (`PORT` honored); image CMD uses
+`config/config.dashboard.cloudrun.yaml`.
 
 **Prod access** — open with the bearer token from `.env` (must match the live
 Cloud Run env `DASHBOARD_TOKEN`, which is set from `.env` at deploy — not

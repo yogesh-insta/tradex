@@ -1,5 +1,5 @@
-# Tradex ops dashboard on Cloud Run (read-only). Uses fxpractice OANDA +
-# baked-in calendar/ledger seeds until GCS/BigQuery sidecars exist.
+# Tradex ops dashboard on Cloud Run (read-only). Uses live fxpractice OANDA
+# account, open-trade, and transaction-history data. Calendar is read from GCS.
 # Secrets via ${ENV}; never commit real values.
 
 env: "demo"
@@ -102,8 +102,10 @@ dashboard:
   auth:
     mode: "bearer"
     token: "${DASHBOARD_TOKEN}"
-  calendar_file: "data/calendar-state.json"
-  ledger_file: "data/trade-ledger.json"
+  gcs:
+    calendar_object: "gs://tradex-demo-state/calendar-state.json"
+  # No ledger_file: realized P&L comes from OANDA ORDER_FILL history until a
+  # BigQuery trade ledger is configured. This must never point at sample JSON.
   # status_file omitted — health panel degrades until trader publishes status.json
   cache_ttl: { overview: 60s, calendar: 60s, pl: 180s }
   ui: { refresh_interval: 20s, pl_daily_lookback_days: 30, reporting_tz: "UTC" }

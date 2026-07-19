@@ -122,10 +122,8 @@ func (c *Config) ValidateDashboard() error {
 		if !hasCal {
 			add("dashboard calendar source missing (gcs.calendar_object or calendar_file)")
 		}
-		hasPL := d.LedgerFile != "" || (d.BigQuery.Project != "" && d.BigQuery.Dataset != "" && d.BigQuery.Table != "")
-		if !hasPL {
-			add("dashboard PL source missing (bigquery project/dataset/table or ledger_file)")
-		}
+		// OANDA transaction history is the production fallback when the
+		// asynchronous BigQuery trade ledger has not been enabled yet.
 	}
 	if _, err := time.LoadLocation(d.UI.ReportingTZ); err != nil || d.UI.ReportingTZ == "" {
 		add("dashboard.ui.reporting_tz %q is not a valid IANA timezone", d.UI.ReportingTZ)

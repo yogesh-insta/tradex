@@ -21,8 +21,10 @@ process fate with the VM trader.
   snapshot published asynchronously by the trader (or a thin publisher). If missing in
   early builds, health may be partially derived from OANDA + ledger freshness and the
   gap must be documented.
-- **BigQuery `trade_ledger`:** closed-trade history for realized P&L aggregates
-  (`11-trade-ledger-persistence.md`).
+- **BigQuery `trade_ledger`:** preferred closed-trade history for realized P&L
+  aggregates (`11-trade-ledger-persistence.md`). When it is absent, empty, or
+  temporarily unavailable, derive realized P&L from read-only OANDA `ORDER_FILL`
+  transaction history; never substitute sample ledger data.
 - **Auth secret / IAP:** allowlisted identity or shared bearer for HTTPS access.
 - Config: accounts, GCS URIs, BQ dataset/table, cache TTLs, auth mode
   (`13-configuration.md` style).
@@ -178,8 +180,10 @@ dashboard:
   auth:
     mode: "bearer"          # bearer | iap
     token: "${DASHBOARD_TOKEN}"
-  calendar_file: "data/calendar-state.json"   # or gcs.calendar_object
-  ledger_file: "data/trade-ledger.json"       # or BigQuery
+  gcs:
+    calendar_object: "gs://tradex-demo-state/calendar-state.json"
+  # Omit ledger_file in Cloud Run: OANDA transaction history is the real
+  # fallback until BigQuery is configured. ledger_file is local/demo-only.
   # status_file / gcs.status_object optional
   cache_ttl:
     overview: 60s
@@ -202,7 +206,7 @@ dashboard:
 | OANDA unreachable | Overview shows last cache or error; other panels still serve |
 | GCS calendar missing/stale | Calendar panel warns; no fake events |
 | GCS status missing | Health panel degraded; derive what is safe from OANDA/BQ freshness |
-| BigQuery error / quota | PL panel error state; do not retry-storm |
+| BigQuery empty/error/quota | Derive P&L from OANDA transaction history; do not retry-storm |
 | Auth misconfigured | Fail closed (deny all data routes) |
 | Cloud Run cold start | UI may spin briefly; acceptable |
 

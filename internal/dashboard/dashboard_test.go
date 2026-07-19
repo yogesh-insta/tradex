@@ -199,6 +199,42 @@ func TestPLDailyAndSevenDayConsistency(t *testing.T) {
 	}
 }
 
+func TestDailyPLFromOANDATransactionsExcludesOpeningFills(t *testing.T) {
+	from := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	days := dailyPLFromTransactions([]oanda.Transaction{
+		{Type: "ORDER_FILL", Time: from.Add(time.Hour), PL: 0}, // opening fill
+		{Type: "ORDER_FILL", Time: from.Add(2 * time.Hour), PL: 4.5},
+		{Type: "ORDER_FILL", Time: from.AddDate(0, 0, 1).Add(time.Hour), PL: -2},
+		{Type: "TRANSFER_FUNDS", Time: from.Add(time.Hour), PL: 99},
+	}, from, from.AddDate(0, 0, 1), time.UTC)
+	if len(days) != 2 {
+		t.Fatalf("days = %+v", days)
+	}
+	if days[0].Day != "2026-07-19" || days[0].RealizedPL != -2 || days[0].TradeCount != 1 || days[0].Losses != 1 {
+		t.Fatalf("newest day = %+v", days[0])
+	}
+	if days[1].Day != "2026-07-18" || days[1].RealizedPL != 4.5 || days[1].TradeCount != 1 || days[1].Wins != 1 {
+		t.Fatalf("oldest day = %+v", days[1])
+	}
+}
+
+func TestFallbackLedgerUsesOANDAWhenPrimaryEmpty(t *testing.T) {
+	fallback := MemoryLedger([]ClosedTrade{{
+		Account: "eu-indices", RealizedPL: 7, CloseTime: time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC),
+	}})
+	ledger := FallbackLedger{Primary: MemoryLedger(nil), Fallback: fallback}
+	days, err := ledger.DailyPL(context.Background(), "eu-indices",
+		time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC), time.UTC)
+	if err != nil || len(days) != 1 || days[0].RealizedPL != 7 {
+		t.Fatalf("fallback daily = %+v, %v", days, err)
+	}
+	total, count, err := ledger.AllTimePL(context.Background(), "eu-indices")
+	if err != nil || total != 7 || count != 1 {
+		t.Fatalf("fallback all = %v, %d, %v", total, count, err)
+	}
+}
+
 func TestPLCacheAvoidsRequery(t *testing.T) {
 	counting := &countingLedger{inner: MemoryLedger([]ClosedTrade{{
 		Account: "eu-indices", RealizedPL: 1, CloseTime: time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC),

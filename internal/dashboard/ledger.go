@@ -11,6 +11,8 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"google.golang.org/api/iterator"
+
+	"github.com/yogesh-insta/tradex/internal/oanda"
 )
 
 // FileLedger aggregates closed trades from a local JSON array (dev/mock).
@@ -96,6 +98,149 @@ type BigQueryLedger struct {
 	Project string
 	Dataset string
 	Table   string
+}
+
+// OANDALedger derives realized P&L from broker ORDER_FILL transactions. It is
+// used when the asynchronous BigQuery ledger is not available yet, so a
+// production dashboard never falls back to a bundled fixture.
+//
+// OANDA reports realized P&L on the fill that closes or reduces a trade. An
+// opening fill has zero P&L and is excluded from the closed-fill count.
+type OANDALedger struct {
+	Client     *oanda.Client
+	AccountIDs map[string]string // dashboard account name -> OANDA account ID
+}
+
+func (l *OANDALedger) accountID(account string) (string, error) {
+	id := l.AccountIDs[account]
+	if id == "" {
+		return "", fmt.Errorf("unknown dashboard account %q", account)
+	}
+	return id, nil
+}
+
+// DailyPL implements LedgerQuerier using OANDA transaction history.
+func (l *OANDALedger) DailyPL(ctx context.Context, account string, from, to time.Time, loc *time.Location) ([]DailyPL, error) {
+	id, err := l.accountID(account)
+	if err != nil {
+		return nil, err
+	}
+	transactions, err := l.Client.Transactions(ctx, id, startOfDay(from, loc), endOfDay(to, loc))
+	if err != nil {
+		return nil, err
+	}
+	return dailyPLFromTransactions(transactions.Transactions, from, to, loc), nil
+}
+
+// AllTimePL implements LedgerQuerier using the complete available OANDA
+// transaction history. Paper accounts are expected to remain below OANDA's
+// 1,000-transaction page cap until an external ledger is enabled.
+func (l *OANDALedger) AllTimePL(ctx context.Context, account string) (float64, int64, error) {
+	id, err := l.accountID(account)
+	if err != nil {
+		return 0, 0, err
+	}
+	transactions, err := l.Client.Transactions(ctx, id, time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), time.Now().UTC())
+	if err != nil {
+		return 0, 0, err
+	}
+	var total float64
+	var count int64
+	for _, tx := range transactions.Transactions {
+		if tx.Type != "ORDER_FILL" || float64(tx.PL) == 0 {
+			continue
+		}
+		total += float64(tx.PL)
+		count++
+	}
+	return total, count, nil
+}
+
+func dailyPLFromTransactions(transactions []oanda.Transaction, from, to time.Time, loc *time.Location) []DailyPL {
+	if loc == nil {
+		loc = time.UTC
+	}
+	fromDay := startOfDay(from, loc)
+	toDay := startOfDay(to, loc)
+	byDay := map[string]*DailyPL{}
+	for _, tx := range transactions {
+		if tx.Type != "ORDER_FILL" || float64(tx.PL) == 0 {
+			continue
+		}
+		dayStart := startOfDay(tx.Time, loc)
+		if dayStart.Before(fromDay) || dayStart.After(toDay) {
+			continue
+		}
+		key := dayStart.Format("2006-01-02")
+		row := byDay[key]
+		if row == nil {
+			row = &DailyPL{Day: key}
+			byDay[key] = row
+		}
+		row.RealizedPL += float64(tx.PL)
+		row.TradeCount++
+		if tx.PL > 0 {
+			row.Wins++
+		} else {
+			row.Losses++
+		}
+	}
+	out := make([]DailyPL, 0, len(byDay))
+	for _, row := range byDay {
+		out = append(out, *row)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Day > out[j].Day })
+	return out
+}
+
+func startOfDay(t time.Time, loc *time.Location) time.Time {
+	if loc == nil {
+		loc = time.UTC
+	}
+	local := t.In(loc)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+}
+
+func endOfDay(t time.Time, loc *time.Location) time.Time {
+	return startOfDay(t, loc).AddDate(0, 0, 1).Add(-time.Nanosecond)
+}
+
+// FallbackLedger uses its primary source whenever it has data; an empty or
+// unavailable primary (e.g. deferred stdout-to-BigQuery publisher) falls back
+// to real OANDA transaction history.
+type FallbackLedger struct {
+	Primary  LedgerQuerier
+	Fallback LedgerQuerier
+}
+
+func (l FallbackLedger) DailyPL(ctx context.Context, account string, from, to time.Time, loc *time.Location) ([]DailyPL, error) {
+	days, err := l.Primary.DailyPL(ctx, account, from, to, loc)
+	if err == nil && len(days) > 0 {
+		return days, nil
+	}
+	fallback, fallbackErr := l.Fallback.DailyPL(ctx, account, from, to, loc)
+	if fallbackErr != nil {
+		if err != nil {
+			return nil, fmt.Errorf("primary ledger: %v; OANDA fallback: %w", err, fallbackErr)
+		}
+		return nil, fallbackErr
+	}
+	return fallback, nil
+}
+
+func (l FallbackLedger) AllTimePL(ctx context.Context, account string) (float64, int64, error) {
+	total, count, err := l.Primary.AllTimePL(ctx, account)
+	if err == nil && count > 0 {
+		return total, count, nil
+	}
+	fallbackTotal, fallbackCount, fallbackErr := l.Fallback.AllTimePL(ctx, account)
+	if fallbackErr != nil {
+		if err != nil {
+			return 0, 0, fmt.Errorf("primary ledger: %v; OANDA fallback: %w", err, fallbackErr)
+		}
+		return 0, 0, fallbackErr
+	}
+	return fallbackTotal, fallbackCount, nil
 }
 
 func (l *BigQueryLedger) tableRef() string {

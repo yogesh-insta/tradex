@@ -128,11 +128,11 @@ function pill(level, text) {
 }
 async function refresh() {
   const cfg = await api("/api/ui-config");
-  const account = (cfg.accounts && cfg.accounts[0]) || "";
-  const [ov, cal, daily] = await Promise.all([
+  const accounts = cfg.accounts || [];
+  const [ov, cal, ...dailyByAccount] = await Promise.all([
     api("/api/overview"),
     api("/api/calendar"),
-    account ? api("/api/pl/daily?account=" + encodeURIComponent(account)) : Promise.resolve(null),
+    ...accounts.map(account => api("/api/pl/daily?account=" + encodeURIComponent(account))),
   ]);
   document.getElementById("meta").textContent =
     "tz=" + cfg.reporting_tz +
@@ -213,36 +213,40 @@ async function refresh() {
 
   // P&L
   let p = '<div class="meta">Day buckets: DATE(close_time) in ' + esc(cfg.reporting_tz) + '</div>';
-  if (!daily) {
+  if (!dailyByAccount.length) {
     p += '<div class="empty">No account configured for P&amp;L</div>';
-  } else if (daily.errors && daily.errors.length) {
-    p += '<div class="err">' + esc(daily.errors.join(" · ")) + '</div>';
   } else {
-    p += '<div class="summary">' +
-      '<div><b>Account</b>' + esc(daily.account) + '</div>' +
-      '<div><b>7-day total</b><span class="' + cls(daily.total_7d) + '">' + money(daily.total_7d) + '</span></div>' +
-      '<div><b>All-time</b><span class="' + cls(daily.total_all) + '">' + money(daily.total_all) + '</span></div>' +
-      '<div><b>All-time trades</b>' + esc(daily.trade_count_all) + '</div>' +
-      '</div>';
-    const days = (daily.days || []).slice().reverse(); // oldest → newest for bars
-    if (days.length) {
-      const max = Math.max(...days.map(d => Math.abs(d.realized_pl)), 1);
-      p += '<div class="bars">';
-      for (const d of days) {
-        const hgt = Math.max(2, Math.round(40 * Math.abs(d.realized_pl) / max));
-        p += '<i class="' + (d.realized_pl < 0 ? "neg" : "") + '" style="height:' + hgt + 'px" title="' +
-          esc(d.day) + ': ' + money(d.realized_pl) + '"></i>';
+    for (const daily of dailyByAccount) {
+      p += '<div class="summary">' +
+        '<div><b>Account</b>' + esc(daily.account) + '</div>' +
+        '<div><b>7-day total</b><span class="' + cls(daily.total_7d) + '">' + money(daily.total_7d) + '</span></div>' +
+        '<div><b>All-time</b><span class="' + cls(daily.total_all) + '">' + money(daily.total_all) + '</span></div>' +
+        '<div><b>All-time close fills</b>' + esc(daily.trade_count_all) + '</div>' +
+        '</div>';
+      if (daily.errors && daily.errors.length) {
+        p += '<div class="err">' + esc(daily.errors.join(" · ")) + '</div>';
+        continue;
       }
-      p += '</div>';
-      p += '<table><thead><tr><th>Day</th><th class="num">Realized</th><th class="num">Trades</th><th class="num">W</th><th class="num">L</th></tr></thead><tbody>';
-      for (const d of (daily.days || [])) {
-        p += '<tr><td>' + esc(d.day) + '</td><td class="num ' + cls(d.realized_pl) + '">' + money(d.realized_pl) +
-          '</td><td class="num">' + esc(d.trade_count) + '</td><td class="num">' + esc(d.wins||0) +
-          '</td><td class="num">' + esc(d.losses||0) + '</td></tr>';
+      const days = (daily.days || []).slice().reverse(); // oldest → newest for bars
+      if (days.length) {
+        const max = Math.max(...days.map(d => Math.abs(d.realized_pl)), 1);
+        p += '<div class="bars">';
+        for (const d of days) {
+          const hgt = Math.max(2, Math.round(40 * Math.abs(d.realized_pl) / max));
+          p += '<i class="' + (d.realized_pl < 0 ? "neg" : "") + '" style="height:' + hgt + 'px" title="' +
+            esc(d.day) + ': ' + money(d.realized_pl) + '"></i>';
+        }
+        p += '</div>';
+        p += '<table><thead><tr><th>Day</th><th class="num">Realized</th><th class="num">Close fills</th><th class="num">W</th><th class="num">L</th></tr></thead><tbody>';
+        for (const d of (daily.days || [])) {
+          p += '<tr><td>' + esc(d.day) + '</td><td class="num ' + cls(d.realized_pl) + '">' + money(d.realized_pl) +
+            '</td><td class="num">' + esc(d.trade_count) + '</td><td class="num">' + esc(d.wins||0) +
+            '</td><td class="num">' + esc(d.losses||0) + '</td></tr>';
+        }
+        p += '</tbody></table>';
+      } else {
+        p += '<div class="empty">No closed trades in lookback window</div>';
       }
-      p += '</tbody></table>';
-    } else {
-      p += '<div class="empty">No closed trades in lookback window</div>';
     }
   }
   document.getElementById("pl").innerHTML = p;
