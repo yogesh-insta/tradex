@@ -41,6 +41,8 @@ sudo chmod 0750 deploy/systemd/tradex-failure-alert.py
 sudo chmod 0750 deploy/systemd/tradex-heartbeat-check.py
 sudo systemctl daemon-reload
 sudo systemctl enable --now tradex-heartbeat-check.timer
+# The service owns runtime heartbeat state; git/build files remain deploy-user owned.
+sudo chown -R tradex:tradex "${APP_DIR}/data"
 
 echo "==> validating config (fail fast before restart)"
 test -f "${APP_DIR}/config/config.${ENVIRONMENT}.yaml"
