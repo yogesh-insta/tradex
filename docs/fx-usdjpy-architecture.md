@@ -6,7 +6,8 @@ and a spec disagree, **this architecture wins** and the spec should be corrected
 
 EU LOVE remains unchanged and independent. This lane reuses the Tradex VM hot path
 (candles → session → `Analyze()` → risk → bracketed executor) with FX-specific session
-timing, strategy matrix, risk profile, and a **mandatory backtest gate** before live.
+timing, strategy matrix, risk profile, and **soft validation targets** (offline backtest
++ paper soak guide promotion; not a hard live blocker — decision B).
 
 Related: [`architecture.md`](./architecture.md) (system-wide), specs under
 [`specs/`](./specs/) (`15`–`19`). Current design sketch:
@@ -23,8 +24,8 @@ Related: [`architecture.md`](./architecture.md) (system-wide), specs under
 | Platform | Extend Tradex VM hot path (new market lane) | Reuse proven money path; no Cloud Run on entry/exit |
 | Instrument | `USD_JPY` (OANDA FX CFD) | Deep liquidity, clear Tokyo→London structure |
 | Account | Dedicated OANDA account (isolated from EU) | Same rule as `architecture.md` §1.1 |
-| Strategy | **TRLD — Tokyo Range → London Drive** | Session-breakout family like EU LOVE; FX-timed edge |
-| Validation | Paper + **mandatory offline backtest** before live | Weekend gaps + BOJ/Fed risk need evidence first |
+| Strategy | **TRLD — Tokyo Range → London Drive** (`fx_trld`) | Session-breakout family like EU LOVE; FX-timed edge |
+| Validation | Paper + offline backtest as **soft targets** | Weekend gaps + BOJ/Fed risk — evidence guides promotion |
 
 We copy the **architecture pattern** (session distiller + pure strategy + unified risk),
 not EU wall-clock times.
@@ -61,10 +62,10 @@ flowchart TB
 | Take profit | `1.2–1.8 × DailyATR` (default 1.5 → ~1:3 R:R) |
 | Breakeven | after +1R |
 | Frequency | **one trade / day / instrument** (no same-day reverse flip) |
-| Go-live gate | expectancy &gt; 0 after costs/spread; max DD within kill-switch budget |
+| Soft targets | expectancy &gt; 0 after costs/spread; max DD within kill-switch budget |
 
-If backtest fails the gate, **do not ship live** — revise the matrix or windows, not risk
-limits.
+If soft targets fail, **revise the matrix or windows** (and document) before sizing up
+live capital — do **not** loosen `18` kill-switch limits to “pass” the report.
 
 ---
 
@@ -85,8 +86,8 @@ flowchart LR
       FXC[FX_USDJPY_controller]
     end
     subgraph strats [Strategy_registry]
-      EU[EU_LOVE]
-      TRLD[FX_TRLD]
+      EU[eu_love]
+      TRLD[fx_trld]
     end
     RISK[Unified_risk]
     EXEC[Executor]
@@ -108,13 +109,13 @@ flowchart LR
   MGMT --> EXEC
 ```
 
-**Mapping:** `USD_JPY → FX_USDJPY session controller → FX_TRLD Analyze()`
+**Mapping:** `USD_JPY → FX session controller → fx_trld Analyze()`
 
 | Layer | Shared unchanged | New / changed for FX |
 | --- | --- | --- |
 | Ingest | Market data, candle builder | Stream/config includes `USD_JPY` |
-| Context | — | FX session controller (`16`) |
-| Decision | Strategy iface / router | FX_TRLD (`17`) |
+| Context | — | FX session controller (`16`; shared `session.Controller` + hub) |
+| Decision | Strategy iface / router | `fx_trld` (`17`) |
 | Risk / exec | Unified risk, executor, control plane | FX risk profile + account binding (`18`) |
 | Support | Calendar, ledger, dashboard | FX/BOJ/Fed region tags; validation harness (`19`) |
 
@@ -148,7 +149,7 @@ Defaults are config keys; all times are IANA-resolved (DST-aware).
 sequenceDiagram
   participant Clock as TokyoClock
   participant FXC as FX_SessionController
-  participant TRLD as FX_TRLD
+  participant TRLD as fx_trld
   participant Risk as UnifiedRisk
   participant Exec as Executor
 
@@ -221,22 +222,23 @@ EU and FX accounts never share margin or daily P&L baselines.
 ```mermaid
 flowchart LR
   Hist[Historical_M5_and_D1_USD_JPY] --> BT[Offline_backtest_harness]
-  BT --> Gate{Expectancy_and_DD_gate}
-  Gate -->|fail| Revise[Revise_matrix_or_windows]
-  Gate -->|pass| Paper[OANDA_fxpractice_FX_account]
-  Paper --> LiveGate{Paper_stats_OK_N_weeks}
+  BT --> Soft{Soft_targets_report}
+  Soft -->|miss| Revise[Revise_matrix_or_windows]
+  Soft -->|guide_OK| Paper[OANDA_fxpractice_FX_account]
+  Paper --> LiveGate{Paper_soak_review}
   LiveGate --> Live[Small_live_FX_account]
   Revise --> BT
 ```
 
-Required before any live FX capital:
+**Soft targets (decision B):** offline backtest metrics and paper soak **guide**
+promotion; they are **not** a hard live blocker. Still required as evidence:
 
 1. Replay harness using the same `MarketEvent` + `SessionState` contracts as live
 2. Cost model: spread + slippage
 3. Walk-forward or out-of-sample holdout
 4. Event-day stress report (FOMC / BOJ weeks)
 
-Normative gates: [`19-fx-validation-backtest.md`](./specs/19-fx-validation-backtest.md).
+Normative soft targets: [`19-fx-validation-backtest.md`](./specs/19-fx-validation-backtest.md).
 
 ---
 

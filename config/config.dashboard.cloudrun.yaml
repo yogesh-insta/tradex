@@ -16,10 +16,20 @@ accounts:
     instruments: ["DE30_EUR", "FR40_EUR"]
     strategy: "eu_love"
     active: true
+  - name: "fx-usdjpy"
+    oanda_account_id: "${OANDA_ACCOUNT_ID_FX}"
+    instruments: ["USD_JPY"]
+    strategy: "fx_trld"
+    active: true
 
 # Minimal stubs so config.Load / Redacted stay happy (dashboard ignores money-path).
 stream: { heartbeat_timeout: 15s, stale_halt: 60s }
-candles: { window_max: 50, timeframes: { DE30_EUR: ["H1", "M5"], FR40_EUR: ["H1", "M5"] } }
+candles:
+  window_max: 50
+  timeframes:
+    DE30_EUR: ["H1", "M5"]
+    FR40_EUR: ["H1", "M5"]
+    USD_JPY: ["H1", "M5"]
 eu_session:
   tz: "Europe/Berlin"
   range_start: "08:00:00"
@@ -28,8 +38,44 @@ eu_session:
   atr_period_days: 14
   vol_ma_candles: 12
   instruments: ["DE30_EUR", "FR40_EUR"]
+fx_session:
+  tz: "Asia/Tokyo"
+  range_start: "09:00:00"
+  range_end: "11:00:00"
+  trade_window_start: "16:00:00"
+  soft_cutoff: "21:00:00"
+  prep_time: "07:30:00"
+  atr_period_days: 14
+  vol_ma_candles: 12
+  instruments: ["USD_JPY"]
 strategies:
   eu_love: { volume_spike_mult: 1.0, sl_atr_mult: 0.5, tp_atr_mult: 1.5, breakeven_at_r: 1.0, entry_window_end: "11:00:00" }
+  fx_trld:
+    volume_spike_mult: 1.0
+    sl_atr_mult: 0.5
+    tp_atr_mult: 1.5
+    breakeven_at_r: 1.0
+    min_atr_frac: 0.15
+    max_atr_frac: 1.25
+    max_spread_pips: 1.5
+    trade_window_start: "16:00:00"
+    entry_window_end: "19:00:00"
+fx_risk:
+  risk_per_trade: 0.01
+  daily_loss_limit: 150
+  consecutive_loss_halt: 3
+  max_concurrent: 1
+  max_margin_frac: 0.10
+  max_leverage: 5.0
+  news_block_before: 60m
+  max_spread_pips: 1.5
+  one_trade_per_day: true
+  reopen_quiet_minutes: 30
+  friday_no_entry: "12:00:00"
+  friday_hard_flatten: "16:00:00"
+  soft_cutoff_flatten_r: 0.5
+  calendar_regions: ["US", "JP"]
+  pip_size: 0.01
 risk:
   risk_per_trade: 0.01
   daily_loss_limit: 150
@@ -45,7 +91,7 @@ control_plane:
   listen: ":8443"
   auth: { secret: "${CONTROL_HMAC_SECRET}", max_skew: 60s, nonce_ttl: 300s }
 calendar:
-  economic: { provider: "file", state_file: "data/calendar-state.json", regions: ["EU"] }
+  economic: { provider: "file", state_file: "data/calendar-state.json", regions: ["EU", "US", "JP"] }
   holidays: { file: "config/holidays.yaml", markets: ["XETR", "XPAR"] }
 persistence: { topics: { trades: "trade-events" }, buffer_size: 8192, flush_timeout: 5s }
 observability: { heartbeat_interval: 30s, liveness_timeout: 120s, reconcile_interval: 20s, drawdown_warn: 120, alert_topic: "alerts" }

@@ -51,7 +51,7 @@ Per configured account:
 
 ### 2. Engine / bot health
 
-Per engine/account (v1: EU account; later multi-account):
+Per configured account (EU `eu-indices` and FX `fx-usdjpy` when present in config):
 
 - State: `ACTIVE` | `PAUSED` | `SYSTEM_LOCKED` | `DISABLED` (from `status.json` when
   available).
@@ -92,8 +92,9 @@ matches when the trade realized. Document the timezone in the UI.
    BigQuery on every browser refresh.
 4. **Auth:** reject unauthenticated requests to `/api/*` and `/` (except optionally
    `/api/health` if used by an uptime check without data leakage).
-5. **Multi-account:** honor the config `accounts` model; aggregate overview; filter P&L
-   by `account`.
+5. **Multi-account:** honor the config `accounts` model (EU + FX); aggregate overview;
+   filter P&L by `account`. Cloud Run config:
+   `config/config.dashboard.cloudrun.yaml` (includes `fx-usdjpy`).
 6. **Failure isolation:** OANDA/GCS/BQ errors return partial payloads + error flags in
    JSON/UI. Dashboard outage must not affect the trader.
 7. **Auto-refresh:** UI polls every 15–30s (config).
@@ -137,6 +138,15 @@ Use parameterized queries; restrict selected columns; rely on partition/cluster 
       "last_heartbeat_at": "2026-07-19T02:00:00Z",
       "last_reconcile_ok": true,
       "market_data_stale": false
+    },
+    {
+      "name": "fx-usdjpy",
+      "state": "ACTIVE",
+      "stream_up": true,
+      "last_tick_age_ms": 900,
+      "last_heartbeat_at": "2026-07-19T02:00:00Z",
+      "last_reconcile_ok": true,
+      "market_data_stale": false
     }
   ]
 }
@@ -147,24 +157,30 @@ Publishing must be async / best-effort and **never** on the order hot path.
 ## Config keys
 
 ```yaml
+# Cloud Run: config/config.dashboard.cloudrun.yaml
+# Local mock: config/config.dashboard.mock.yaml
+# Reuses top-level oanda: + accounts: from the same file (EU + FX).
+
+accounts:
+  - name: "eu-indices"
+    oanda_account_id: "${OANDA_ACCOUNT_ID_EU}"
+    instruments: ["DE30_EUR", "FR40_EUR"]
+    strategy: "eu_love"
+    active: true
+  - name: "fx-usdjpy"
+    oanda_account_id: "${OANDA_ACCOUNT_ID_FX}"
+    instruments: ["USD_JPY"]
+    strategy: "fx_trld"
+    active: true
+
 dashboard:
   listen_addr: ":8080"
   auth:
     mode: "bearer"          # bearer | iap
-    token_ref: "projects/…/secrets/dashboard-token"
-  oanda:
-    host: "api-fxpractice.oanda.com"   # read-only usage
-    token: "${OANDA_API_TOKEN}"
-  accounts:                 # or reuse top-level accounts from env config
-    - name: "eu-indices"
-      oanda_account_id: "${OANDA_ACCOUNT_ID_EU}"
-  gcs:
-    calendar_object: "gs://tradex-<env>-state/calendar-state.json"
-    status_object: "gs://tradex-<env>-state/status.json"   # optional
-  bigquery:
-    project: "tradex-<env>"
-    dataset: "tradex"
-    table: "trade_ledger"
+    token: "${DASHBOARD_TOKEN}"
+  calendar_file: "data/calendar-state.json"   # or gcs.calendar_object
+  ledger_file: "data/trade-ledger.json"       # or BigQuery
+  # status_file / gcs.status_object optional
   cache_ttl:
     overview: 60s
     calendar: 60s
@@ -176,6 +192,7 @@ dashboard:
   health:
     heartbeat_stale: 120s
     tick_stale: 60s
+    calendar_stale: 90m
 ```
 
 ## Failure modes
@@ -193,8 +210,8 @@ dashboard:
 
 - Authenticated browser (off-VPN) sees all four panels.
 - Unauthenticated requests to data routes get 401/403.
-- Open-trades view matches OANDA for configured accounts (or explicit mock mode for local
-  demos).
+- Open-trades view matches OANDA for configured accounts — including **FX** when
+  `fx-usdjpy` is in config (or explicit mock mode for local demos).
 - Calendar panel parses the same `calendar-state.json` schema as the VM.
 - P&L section shows **per-day** rows plus **7d** and **all-time** totals per account.
 - Sum of the last 7 daily rows equals the 7d total for the same account (within rounding).

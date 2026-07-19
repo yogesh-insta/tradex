@@ -1,7 +1,9 @@
-// Package session implements the EU session controller per
-// docs/specs/04-eu-session-controller.md: it distills candles into the
-// read-only SessionState the EU LOVE strategy consumes (opening range, 14-day
-// Wilder ATR, running VWAP, VolMA12). It never emits signals or touches orders.
+// Package session implements the session controller used by EU LOVE
+// (docs/specs/04-eu-session-controller.md) and FX TRLD
+// (docs/specs/16-fx-session-controller.md): it distills candles into the
+// read-only SessionState strategies consume (opening range, 14-day Wilder ATR,
+// running VWAP, VolMA12). It never emits signals or touches orders.
+// FX clocks/instruments are supplied via Config (see Hub + trader wiring).
 package session
 
 import (

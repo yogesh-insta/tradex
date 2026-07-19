@@ -3,7 +3,7 @@
 ## Purpose
 
 Define how the **unified risk module** (`06-risk-management.md`) behaves for the FX
-account and `USD_JPY` / `FX_TRLD` signals. Risk remains one in-process module; this spec
+account and `USD_JPY` / `fx_trld` signals. Risk remains one in-process module; this spec
 is the **per-account / per-market profile** and the FX-only gates that protect expectancy
 (weekend, reopen quiet, one-trade/day, spread, BOJ pause).
 
@@ -11,7 +11,7 @@ EU risk numbers and correlation groups are unchanged.
 
 ## Inputs
 
-- `Signal` with `Strategy == "FX_TRLD"` and `Instrument == "USD_JPY"`.
+- `Signal` with `Strategy == "fx_trld"` and `Instrument == "USD_JPY"`.
 - FX account state: equity, margin, open trades, today’s realized P&L, consecutive-loss
   counter, session-day trade counter for `USD_JPY`.
 - `SystemState` (per FX market/account binding).

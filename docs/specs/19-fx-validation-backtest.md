@@ -2,9 +2,16 @@
 
 ## Purpose
 
-Define the **mandatory validation path** for the FX TRLD lane before any live capital:
-offline replay harness, cost model, statistical gates, paper soak, and promotion rules.
-Stronger than EU v1 (which shipped paper-only without an offline harness).
+Define the **validation path** for the FX TRLD lane: offline replay harness, cost model,
+statistical **soft targets**, paper soak, and promotion guidance.
+
+**Decision B (locked):** soft targets — build and paper-trade; backtest metrics **guide**
+promotion. They are **not** a hard live blocker. Missing a target means document and
+revise `16`/`17` before sizing up capital — never loosen `18` kill-switch limits to
+“pass” a report.
+
+Stronger evidence than EU (which shipped paper-only without an offline harness), but
+intentionally softer than a mandatory gate.
 
 Design: [`../fx-usdjpy-architecture.md`](../fx-usdjpy-architecture.md) §6.
 Strategy under test: [`17-strategy-fx-trld.md`](./17-strategy-fx-trld.md) +
@@ -16,15 +23,15 @@ Strategy under test: [`17-strategy-fx-trld.md`](./17-strategy-fx-trld.md) +
 - Historical OANDA (or equivalent) **D1** and **M5** candles for `USD_JPY`.
 - Holiday / FX session calendar aligned with production config.
 - Optional event list for stress slices (FOMC, BOJ, CPI, NFP).
-- Production-equivalent config (`fx_session`, `fx_trld`, `fx_risk`) — no hidden overrides
-  in the harness except cost-model knobs.
+- Production-equivalent config (`fx_session`, `strategies.fx_trld`, `fx_risk`) — no
+  hidden overrides in the harness except cost-model knobs.
 
 ## Outputs
 
 - Backtest report: trades, expectancy, win rate, profit factor, max DD, exposure calendar.
-- Pass/fail against go-live gates below.
+- Soft-target pass/miss annotations (informational for promotion review).
 - Paper soak checklist result.
-- Explicit **promotion decision** record (who/when/config hash).
+- Explicit **promotion decision** record (who/when/config hash) when moving to live.
 
 ## Behavior
 
@@ -33,11 +40,11 @@ Strategy under test: [`17-strategy-fx-trld.md`](./17-strategy-fx-trld.md) +
 ```text
 Historical M5 + D1
     → rebuild SessionState (same rules as 16)
-    → on each M5 close in window: FX_TRLD.Analyze() (17)
+    → on each M5 close in window: fx_trld.Analyze() (17)
     → apply FX risk gates that are deterministic offline (18 subset)
     → simulate fills with cost model
     → apply mgmt: BE at +1R, Friday flatten, soft-cutoff weak flatten
-    → aggregate metrics → gate
+    → aggregate metrics → soft-target report
 ```
 
 Offline risk subset **must** include: one-trade/day, range/ATR preconditions (via
@@ -66,14 +73,14 @@ Report must state whether spread is charged once or twice and match the implemen
 
 1. **In-sample (train)** — tune only within pre-declared config bounds; no tick-level
    curve fitting of dozens of free parameters.
-2. **Out-of-sample (test)** — primary gate; train metrics are informational.
+2. **Out-of-sample (test)** — primary soft-target focus; train metrics are informational.
 3. **Event stress** — separate slice for ±1 session day around FOMC/BOJ (and CPI/NFP if
    tagged); report expectancy and max adverse excursion.
 4. **Weekend flat invariant** — zero simulated holds across FX weekend close.
 
-### Go-live gates (all must pass on OOS)
+### Soft targets (OOS — guide, not hard blockers)
 
-| Gate | Requirement |
+| Target | Guidance |
 | --- | --- |
 | Expectancy | Mean R per trade &gt; 0 after costs |
 | Trade count | ≥ `min_oos_trades` (default 80) so the sample is not noise |
@@ -83,21 +90,22 @@ Report must state whether spread is charged once or twice and match the implemen
 | Profit factor | ≥ `min_profit_factor` (default 1.1) |
 | Weekend | No open position across Friday hard flatten → Sunday open |
 
-If any gate fails → **revise matrix/windows** (`16`/`17`); do **not** loosen `18`
-kill-switch limits to pass.
+If soft targets are missed → **revise matrix/windows** (`16`/`17`) and re-run; do **not**
+loosen `18` kill-switch limits to improve the report. Paper FX may still run while
+evidence is gathered.
 
-### Paper soak (after offline pass)
+### Paper soak (recommended after offline report)
 
-- Run on OANDA `fxpractice` with the FX account, same config hash as OOS pass.
-- Duration ≥ `paper_min_weeks` (default 4).
+- Run on OANDA `fxpractice` with the FX account, same config hash as the OOS report.
+- Duration ≥ `paper_min_weeks` (default 4) as a soft target.
 - Live spreads: reject rate for `spread_too_wide` logged; if &gt; `max_spread_reject_frac`
   of signals, revisit `max_spread_pips` before live.
 - No critical control-plane / reconcile incidents.
 
-### Live promotion
+### Live promotion (review)
 
-- Small FX live account only after offline **and** paper gates pass.
-- Record: config hash, report paths, approver, timestamp.
+- Small FX live account only after reviewing offline **and** paper evidence.
+- Record: config hash, report paths, soft-target outcomes, approver, timestamp.
 - First live phase: unchanged strategy params; only risk `daily_loss_limit` may be
   tightened, never loosened vs paper.
 
@@ -126,9 +134,9 @@ fx_backtest:
 | Failure | Handling |
 | --- | --- |
 | Missing M5 history gaps | Fail harness run; do not impute breakouts across gaps |
-| Config drift vs prod | Fail promotion if hash ≠ paper/live intent |
-| Gate fail | Block live; file revision notes against `16`/`17` |
-| Overfit suspicion (train ≫ OOS) | Fail soft gate: OOS expectancy must hold; document |
+| Config drift vs prod | Flag in promotion record if hash ≠ paper/live intent |
+| Soft target miss | Document; revise `16`/`17`; do not treat as automated hard block |
+| Overfit suspicion (train ≫ OOS) | Soft flag: OOS expectancy should hold; document |
 
 ## Acceptance criteria
 
@@ -137,10 +145,11 @@ fx_backtest:
 - Golden vectors: fixed `(candles → SessionState → Signal)` fixtures match unit tests in
   `16`/`17`.
 - OOS report is reproducible given the same data snapshot + config.
-- Checklist artifact exists before live: offline pass, paper pass, promotion record.
+- Promotion to live records soft-target outcomes (pass/miss) even when proceeding.
 
 ## Out of scope
 
 - Tick lake / full L2 simulation.
 - ML parameter search.
 - EU LOVE backtest (optional later; not required for FX promotion).
+- Hard CI/deploy gates that refuse paper enablement when soft targets miss.

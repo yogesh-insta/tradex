@@ -1,27 +1,33 @@
-# Tradex Specifications — Overview (v1 + FX lane)
+# Tradex Specifications — Overview (EU + FX)
 
 This folder holds one spec per component. Specs are **normative** (what to build);
 [`../architecture.md`](../architecture.md) is the system design rationale. FX lane
 rationale: [`../fx-usdjpy-architecture.md`](../fx-usdjpy-architecture.md). Where they
 disagree, architecture wins and the spec should be corrected.
 
-## v1 scope (EU — shipped path)
+## EU LOVE (shipped)
 
-- **Strategy:** EU LOVE (London Open Volatility Extension).
+- **Strategy:** EU LOVE (London Open Volatility Extension) — registry / signal key
+  `eu_love`.
 - **Instruments:** `DE30_EUR`, `FR40_EUR` (exact OANDA symbols verified via
   `GET /v3/accounts/{id}/instruments` at boot — see `07-order-executor.md`).
   AU practice uses `DE30_EUR` (DAX / Germany 40 CFD); conceptual docs may still
   say “Germany 40”.
 - **Account:** one OANDA account for the EU market, funded ~$5,000 USD, `fxpractice`
   (paper) host for validation.
-- **Deferred from EU v1:** US Sweep, Asia index mean-reversion, tick data lake.
-  Offline backtest was not required for EU v1.
+- **Deferred from EU path:** US Sweep, Asia index mean-reversion, tick data lake.
+  Offline backtest was not required for EU.
 
-## FX lane scope (next — specs landed)
+## FX TRLD (shipped)
 
-- **Strategy:** FX TRLD (Tokyo Range → London Drive) — see `15`–`19`.
-- **Instrument:** `USD_JPY` on a **dedicated** OANDA account.
-- **Validation:** mandatory offline backtest gates + paper soak before live (`19`).
+- **Strategy:** FX TRLD (Tokyo Range → London Drive) — registry / signal key
+  `fx_trld` — see `15`–`19`.
+- **Instrument:** `USD_JPY` on a **dedicated** OANDA account (`accounts[]` name
+  `fx-usdjpy`).
+- **Enablement:** set `accounts` entry `active: true` and `OANDA_ACCOUNT_ID_FX`
+  (dev/demo default active; prod defaults inactive until deliberately enabled).
+- **Validation:** offline backtest + paper soak are **soft targets** that guide
+  promotion (decision B) — `19`.
 - **Design:** [`../fx-usdjpy-architecture.md`](../fx-usdjpy-architecture.md).
 
 ## Component specs
@@ -49,7 +55,7 @@ market data to execution, then the supporting services and config, then the FX l
 | 16 | [`16-fx-session-controller.md`](./16-fx-session-controller.md) | Tokyo range lock, 14-day ATR, VWAP, VolMA |
 | 17 | [`17-strategy-fx-trld.md`](./17-strategy-fx-trld.md) | FX TRLD `Analyze()` entry matrix → `Signal` |
 | 18 | [`18-fx-risk-profile.md`](./18-fx-risk-profile.md) | FX account gates: one-trade/day, weekend, spread, news |
-| 19 | [`19-fx-validation-backtest.md`](./19-fx-validation-backtest.md) | Offline harness + paper/live promotion gates |
+| 19 | [`19-fx-validation-backtest.md`](./19-fx-validation-backtest.md) | Offline harness + soft promotion targets |
 
 ## Conventions used in every spec
 
@@ -65,3 +71,5 @@ Acceptance criteria · Out of scope**.
   `trade_id`; command handlers are safe to replay.
 - **Config-driven:** no magic numbers in code. Every threshold below maps to a key in
   `13-configuration.md`.
+- **Strategy names** in config, registry, and `Signal.Strategy` are lowercase snake
+  (`eu_love`, `fx_trld`). Prose may say “EU LOVE” / “FX TRLD”.

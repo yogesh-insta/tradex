@@ -27,30 +27,30 @@ and specs `15`–`19`.
 
 ### 1.1 v1 scope & decision log
 
-Sections below describe the **full multi-market target**. The **first release (v1)
-ships the European path only**. The **FX TRLD** lane (`USD_JPY`) is the next market
-behind the same interfaces (architecture + specs landed; implementation after
-validation gates). US Sweep and Asia **index** mean-reversion remain deferred.
+Sections below describe the **full multi-market target**. **EU LOVE** and **FX TRLD**
+are both implemented behind the same hot-path interfaces (session hub, strategy
+registry, unified risk, bracketed executor). EU and FX paper accounts can run
+together when `accounts[].active` is set. US Sweep and Asia **index** mean-reversion
+remain deferred.
 
 | Area | v1 / lane decision |
 | --- | --- |
-| Market / instruments (v1 shipped) | **EU LOVE** — `DE30_EUR` (DAX / Germany 40), `FR40_EUR`. |
-| Market / instruments (next lane) | **FX TRLD** — `USD_JPY` on a dedicated account; see `fx-usdjpy-architecture.md`. |
+| Market / instruments (shipped) | **EU LOVE** — `DE30_EUR` (DAX / Germany 40), `FR40_EUR`. |
+| Market / instruments (shipped) | **FX TRLD** — `USD_JPY` on a dedicated account; registry key `fx_trld`; see `fx-usdjpy-architecture.md`. |
 | EU entry | **Market order** after a **5-min candle closes fully outside** the 08:00–09:00 CET range (no wick entries). |
 | FX entry | **Market order** after a **5-min candle closes fully outside** the 09:00–11:00 JST Tokyo range during the London drive window (no wick entries). |
 | Timeframes | Range + execution anchors are per market; EU/FX both use M5 execution with session range lock. Pulled from OANDA REST into separate per-timeframe buffers. |
 | US entry (future) | **Resting limit orders** at range extremes (Buy Limit 2 pips above range low, Sell Limit 2 pips below range high), placed 09:45:01 ET; opposite/unfilled order cancelled on confirmed close outside. |
 | Asia index entry (future) | Deferred — distinct from FX TRLD (FX is a currency lane, not JP225/AU200). |
-| Accounts | **One OANDA account per market** (isolated margin + caps). EU account funded **~$5,000 USD** for v1; FX account separate when enabled. |
+| Accounts | **One OANDA account per market** (isolated margin + caps). EU and FX each have a sub-account; enable via `accounts[].active` + `OANDA_ACCOUNT_ID_*`. |
 | Risk (per account) | 1% equity/trade · **−$150 daily hard lock** (sized per account) · halt after **3 consecutive losses** · one open trade per instrument. |
 | FX daily trade cap | **One accepted entry per Tokyo session day** on `USD_JPY` (no same-day re-entry). EU keeps no daily cap (§10). |
 | Correlation guard | `DE30`/`FR40` treated as correlated → **only one of the pair open at a time**. FX v1 single-instrument (no cross group yet). |
 | Kill switch | Daily breaker → **`SYSTEM_LOCKED`**; **no auto re-arm**; cleared only by a signed `RE_ARM` (snapshots new baseline equity). Per account. |
-| Control plane | Inbound **command webhook on VM `:8443`**, **HMAC-signed over TLS**; commands `FLATTEN` / `PAUSE` / `RESUME` / `RE_ARM`. |
-| Alerts | **Telegram** outbound; webhook inbound. |
-| Persistence | **Trade ledger → BigQuery**; **tick lake deferred**. |
-| Validation (EU v1) | **OANDA `fxpractice` paper account**; no offline backtest harness required for EU v1. |
-| Validation (FX) | **Mandatory offline backtest gates** then paper soak before live (`19-fx-validation-backtest.md`). |
+| Alerts | **Telegram** calendar review is live (`cmd/calendarpoller`). Trade/session/breaker Telegram notifier via Pub/Sub is **deferred** (`12-observability-and-alerts.md`). Control-plane webhook inbound. |
+| Persistence | **Trade ledger → BigQuery** (sidecar deferred; stdout publisher in v1); **tick lake deferred**. |
+| Validation (EU) | **OANDA `fxpractice` paper account**; no offline backtest harness required for EU. |
+| Validation (FX) | Offline backtest + paper soak are **soft targets** (guide promotion; not a hard live blocker) — `19-fx-validation-backtest.md`. |
 
 ---
 
@@ -221,10 +221,10 @@ flowchart LR
 
   subgraph STRAT["Strategy registry — Analyze() is pure"]
     direction TB
-    US["US_Sweep"]
-    EU["EU_LOVE"]
-    FX["FX_TRLD"]
-    ASIA["Asia_MeanRev"]
+    US["us_sweep"]
+    EU["eu_love"]
+    FX["fx_trld"]
+    ASIA["asia_meanrev"]
   end
 
   SIGNAL["Signal<br/>side · entry · SL · TP · policy"]
@@ -289,10 +289,10 @@ flowchart LR
 
   subgraph STRATS["Strategies"]
     direction TB
-    US["US_Sweep"]
-    EU["EU_LOVE"]
-    FX["FX_TRLD"]
-    ASIA["Asia_MeanRev"]
+    US["us_sweep"]
+    EU["eu_love"]
+    FX["fx_trld"]
+    ASIA["asia_meanrev"]
   end
 
   CANDLES -. "ticks + closed candles" .-> USC
@@ -332,8 +332,8 @@ flowchart LR
   `SessionState` to its strategy's `Analyze()`.
 
 Mapping (instrument → controller → strategy) is 1:1 per market, e.g.
-`NAS100_USD → US controller → US_Sweep`, `DE30_EUR → EU controller → EU_LOVE`,
-`USD_JPY → FX controller → FX_TRLD`.
+`NAS100_USD → US controller → us_sweep` (future), `DE30_EUR → EU controller → eu_love`,
+`USD_JPY → FX controller → fx_trld`.
 
 **Connections (summary):**
 
@@ -618,10 +618,12 @@ Latency-insensitive; cold starts are harmless here.
 
 - **BigQuery logger**: consumes trade/tick-metadata events; idempotent upsert by `trade_id`.
 - **Analytics/KPI**: scheduled SQL for Sharpe, profit factor, max drawdown, equity curve.
-- **Telegram notifier**: consumes alert events; sends to Telegram.
-- **Calendar poller**: Finnhub (7d high-impact US/JP/EU) with Gemini Live Search fallback,
-  Telegram review, then durable `calendar-state.json` write; VM **fails safe** if the
-  state is stale/unknown. Holidays remain checked-in config (not polled).
+- **Telegram notifier (deferred):** trade/session/breaker alert events via Pub/Sub →
+  Telegram — not wired yet; see `12-observability-and-alerts.md`.
+- **Calendar poller (implemented):** `cmd/calendarpoller` — Finnhub (7d high-impact
+  US/JP/EU) with Gemini Live Search fallback (`gemini-2.5-flash-lite`), Telegram
+  review, then durable `calendar-state.json` write; VM **fails safe** if the state is
+  stale/unknown. Holidays remain checked-in config (not polled).
 
 ### 6.3 Data lake
 
@@ -645,7 +647,8 @@ A lightweight inbound API turns the outbound-only pipeline into a two-way admin 
     untouched** (broker brackets still protect them).
   - `RE_ARM` — the only exit from `SYSTEM_LOCKED`: resets the daily-loss tracker,
     snapshots a new baseline equity, sets state `ACTIVE`. **No automatic midnight re-arm.**
-- Telegram remains the **outbound** alert channel; the webhook is **inbound** only.
+- Calendar review Telegram is live; trade/session Telegram alerts remain deferred.
+  The control-plane webhook is **inbound** only.
 
 ---
 
@@ -763,10 +766,11 @@ for v1). Live vs paper is selected by the OANDA host/credentials, per account.
   reconnect metrics, execution-failure alerts, periodic RAM-vs-OANDA reconciliation, daily
   P&L vs drawdown limits → Telegram + Cloud Monitoring.
 - **Security**: Secret Manager + attached SA (no key files); least-privilege per component.
-- **Validation**: EU v1 is validated on the OANDA `fxpractice` **paper account** (same
-  code path, paper host) without a required offline harness. **FX TRLD requires** an
-  offline backtest gate plus paper soak before live (`19-fx-validation-backtest.md`).
-  Strategy and risk stay pure/importable so the harness shares production logic.
+- **Validation**: EU is validated on the OANDA `fxpractice` **paper account** (same
+  code path, paper host) without a required offline harness. **FX TRLD** uses offline
+  backtest + paper soak as **soft targets** that guide promotion — not a hard live
+  blocker (`19-fx-validation-backtest.md`). Strategy and risk stay pure/importable so
+  the harness shares production logic.
 
 ---
 
@@ -786,18 +790,18 @@ for v1). Live vs paper is selected by the OANDA host/credentials, per account.
   circuit breaker) in the unified risk module.
 - **FX daily cap (intentional):** FX TRLD enforces **one accepted entry per Tokyo
   session day** on `USD_JPY` (no same-day re-entry) — see `18-fx-risk-profile.md`.
-- **v1 = EU shipped; FX next:** first release ships `DE30`/`FR40` on EU LOVE; FX TRLD
-  (`USD_JPY`) is the next lane (specs `15`–`19`). US Sweep and Asia index MR remain
-  staged (§1.1, §4.2).
+- **EU + FX shipped:** `DE30`/`FR40` on `eu_love` and `USD_JPY` on `fx_trld` share the
+  VM hot path (specs `15`–`19`). US Sweep and Asia index MR remain staged (§1.1, §4.2).
 - **Per-market accounts:** risk aggregates (−$150 daily lock, concurrency,
   consecutive-loss) are enforced **per account**, not globally.
 - **Entry split:** EU and FX use market-on-close; US (future) uses resting limit orders
   (§4.2).
 - **Control plane:** HMAC-signed command webhook (`FLATTEN`/`PAUSE`/`RESUME`/`RE_ARM`);
   kill switch is manual-re-arm only (§6.4).
-- **Validation:** EU — paper account, no required offline harness. FX — mandatory
-  offline backtest + paper soak before live.
-- **Tick lake deferred:** v1 persists the trade ledger to BigQuery only.
+- **Validation:** EU — paper account, no required offline harness. FX — soft targets
+  (offline backtest + paper soak guide promotion; not a hard blocker).
+- **Tick lake deferred:** v1 trade events go to the in-process publisher (BigQuery
+  sidecar later).
 
 ---
 

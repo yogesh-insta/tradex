@@ -13,12 +13,12 @@ This lane is **additive**. EU LOVE (`05`) and the EU account are unchanged.
 
 | Area | FX lane decision |
 | --- | --- |
-| Strategy | **FX_TRLD** — Tokyo Range → London Drive |
+| Strategy | **FX TRLD** — Tokyo Range → London Drive (registry / `Signal.Strategy`: `fx_trld`) |
 | Instrument | `USD_JPY` only (exact OANDA name verified at boot via instruments API) |
-| Account | Dedicated OANDA account, isolated margin + daily P&L from EU |
+| Account | Dedicated OANDA account (`fx-usdjpy`), isolated margin + daily P&L from EU |
 | Entry | MARKET after M5 close fully outside Tokyo range (see `17`) |
 | Session clock | `Asia/Tokyo` (see `16`) |
-| Validation | Offline backtest gate **required** before live (`19`); then `fxpractice` paper |
+| Validation | Offline backtest + paper soak are **soft targets** (`19`, decision B) |
 | Deferred | Additional JPY crosses, US Sweep, Asia index mean-reversion |
 
 ## Inputs
@@ -38,7 +38,7 @@ This lane is **additive**. EU LOVE (`05`) and the EU account are unchanged.
 
 ## Success metrics
 
-| Metric | Gate |
+| Metric | Soft target (guide) |
 | --- | --- |
 | Backtest expectancy (after spread/slippage model) | &gt; 0 |
 | Backtest max drawdown | Within configured daily/consecutive kill-switch budget (stress) |
@@ -58,17 +58,16 @@ This lane is **additive**. EU LOVE (`05`) and the EU account are unchanged.
 
 | Failure | Handling |
 | --- | --- |
-| Backtest gate fails | Do not enable live FX account; revise `16`/`17` params |
+| Soft targets missed | Document; revise `16`/`17` before sizing up live; do not loosen `18` |
 | FX account missing / wrong host | Boot fails closed for FX lane; EU unaffected |
 | Calendar region misconfigured | Fail-safe news blackout for FX (`18`) |
 
 ## Acceptance criteria
 
-- Router maps `USD_JPY` → FX session controller → `FX_TRLD` only.
+- Router maps `USD_JPY` → FX session controller → `fx_trld` only.
 - EU instruments never evaluate TRLD; `USD_JPY` never evaluates EU LOVE.
 - Documentation cross-links architecture § FX lane and specs `15`–`19`.
 
 ## Out of scope
 
-- Implementation code (this is the charter).
 - Changing EU LOVE matrices, EU risk numbers, or EU session clocks.

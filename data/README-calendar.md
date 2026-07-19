@@ -6,9 +6,14 @@ Keep a **durable high-impact** event file covering **EU equity index** and **US/
 in one state object. The VM fail-safes if this state is missing, unparseable, or stale —
 so freshness matters.
 
-**Primary path (target):** automated poller — Finnhub primary → Gemini Live Search
-fallback → Telegram review message → write durable `calendar-state.json` / GCS.
-Normative behaviour: [`docs/specs/10-economic-calendar.md`](../docs/specs/10-economic-calendar.md).
+**Primary path:** `cmd/calendarpoller` — Finnhub primary → Gemini Live Search
+fallback (`gemini-2.5-flash-lite`) → Telegram review message → write durable
+`calendar-state.json` / GCS. Normative behaviour:
+[`docs/specs/10-economic-calendar.md`](../docs/specs/10-economic-calendar.md).
+
+```bash
+go run ./cmd/calendarpoller -config config/config.dev.yaml
+```
 
 This supersedes the earlier interim **manual-only** weekly paste as the main workflow.
 Manual Google AI web paste remains an **optional backup** if both Finnhub and Gemini fail.

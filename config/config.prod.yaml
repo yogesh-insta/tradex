@@ -48,6 +48,7 @@ candles:           # 03-candle-builder.md
   timeframes:
     DE30_EUR: ["H1", "M5"]
     FR40_EUR: ["H1", "M5"]
+    USD_JPY: ["H1", "M5"]
   window_max: 50
   rest_confirm_delay: 2s
   rest_confirm_timeout: 5s

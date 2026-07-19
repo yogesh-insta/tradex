@@ -24,7 +24,7 @@ Session context: [`16-fx-session-controller.md`](./16-fx-session-controller.md).
 
 - `*Signal` (nil = no setup). Populated fields: `Direction`, `OrderType="MARKET"`,
   `EntryPrice` (reference = candle close), `StopLoss`, `TakeProfit`, `Policy`,
-  `Strategy="FX_TRLD"`, `Reason`.
+  `Strategy="fx_trld"`, `Reason`.
 
 ## Behavior
 

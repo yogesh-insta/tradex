@@ -4,8 +4,10 @@
 
 Make the system's health legible and page a human before a silent failure costs money.
 Covers liveness, market-data staleness, execution failures, RAM↔OANDA reconciliation,
-and drawdown/limit monitoring. Outbound alerts go to **Telegram**; metrics to **Cloud
-Monitoring**.
+and drawdown/limit monitoring. **Calendar review** messages go to Telegram today
+(`cmd/calendarpoller`). **Trade / session / breaker Telegram alerts** (Pub/Sub →
+Cloud Run notifier) are **deferred** — designed here, not yet wired. Metrics target
+**Cloud Monitoring** (also deferred behind `metrics.Registry`).
 
 ## Signals & alerts
 
@@ -32,17 +34,18 @@ Monitoring**.
 3. **Metrics (Cloud Monitoring):** stream up/last-tick age, reconnect count, order
    success/fail counts + latency, open positions, daily realized P&L, current state,
    calendar freshness (`as_of` age), publisher buffer depth.
-4. **Telegram notifier (Cloud Run):** consumes alert events from Pub/Sub; formats concise
-   messages (state changes, breaker, execution errors, daily P&L summary at session end).
-5. **Calendar review (poller):** after each successful Finnhub/Gemini compile, the calendar
-   poller POSTs a review message to Telegram
+4. **Telegram notifier (Cloud Run) — deferred:** will consume alert events from Pub/Sub
+   and format concise messages (state changes, breaker, execution errors, daily P&L
+   summary at session end). Until then, operators use the control-plane `STATUS`
+   webhook, logs, and the read-only dashboard (`14-dashboard.md`).
+5. **Calendar review (poller) — implemented:** after each successful Finnhub/Gemini
+   compile, `cmd/calendarpoller` POSTs a review message to Telegram
    (`https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/sendMessage`) with source header
    (`Finnhub Primary` / `Gemini Fallback Pipeline`) and a fenced `json` body — ops
    validation channel, not a trading alert. Normative detail:
-   [`10-economic-calendar.md`](./10-economic-calendar.md). Shares
-   `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` with the notifier secrets.
-6. **Analytics/KPI (scheduled SQL):** Sharpe, profit factor, max drawdown, win rate,
-   equity curve over `trade_ledger` — reporting only, off the hot path.
+   [`10-economic-calendar.md`](./10-economic-calendar.md).
+6. **Analytics/KPI (scheduled SQL) — deferred:** Sharpe, profit factor, max drawdown,
+   win rate, equity curve over `trade_ledger` — reporting only, off the hot path.
 
 ## Config keys
 
@@ -71,13 +74,17 @@ observability:
 
 ## Acceptance criteria
 
-- Killing the VM triggers a liveness page within `liveness_timeout`.
-- Manually closing a trade at the OANDA console makes reconciliation detect the drift,
-  adopt OANDA's view, and alert — without the loop erroring.
-- Approaching −$120 realized loss sends a warn; −$150 sends the breaker alert and locks.
-- Every state transition (`ACTIVE`/`PAUSED`/`SYSTEM_LOCKED`/`DISABLED`) is notified.
+- Killing the VM triggers a liveness page within `liveness_timeout` (when Monitoring is
+  wired).
+- Manually closing a trade at the OANDA console makes reconciliation detect the drift
+  and adopt OANDA's view — without the loop erroring.
+- Approaching −$120 realized loss warns (when notifier is wired); −$150 trips the
+  breaker and locks regardless.
+- Calendar poller review messages reach Telegram after a successful compile.
+- Trade/session Telegram alerts remain deferred until the Pub/Sub notifier lands.
 
 ## Out of scope
 
 - Taking trading action (risk/control-plane own that). Tick-level analytics (deferred).
 - Operator pull UI / per-day P&L dashboard — see `14-dashboard.md` (Cloud Run, read-only).
+- Implementing the trade/session Telegram notifier in this revision (explicitly deferred).

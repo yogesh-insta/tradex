@@ -81,7 +81,7 @@ type ManagementPolicy struct {
 // Signal — strategy output: price intent + policy. NOT sized. nil = no setup.
 type Signal struct {
     Instrument string
-    Strategy   string    // "EU_LOVE" | "FX_TRLD" (| "US_SWEEP" future)
+    Strategy   string    // "eu_love" | "fx_trld" (| "us_sweep" future)
     Direction  string    // "LONG" | "SHORT"
     OrderType  string    // "MARKET" (EU, FX) | "LIMIT" (US, future)
     EntryPrice float64   // for LIMIT; reference for MARKET

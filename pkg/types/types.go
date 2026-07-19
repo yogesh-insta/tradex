@@ -110,7 +110,7 @@ const (
 // Signal is the strategy output: price intent + policy. NOT sized. nil = no setup.
 type Signal struct {
 	Instrument string
-	Strategy   string  // "EU_LOVE"
+	Strategy   string  // "eu_love" | "fx_trld"
 	Direction  string  // "LONG" | "SHORT"
 	OrderType  string  // "MARKET" (EU) | "LIMIT" (US, future)
 	EntryPrice float64 // for LIMIT; reference for MARKET
