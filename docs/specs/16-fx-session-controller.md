@@ -66,7 +66,7 @@ fx_session:
   tz: "Asia/Tokyo"
   range_start: "09:00:00"
   range_end:   "11:00:00"        # lock instant; window is [start, end)
-  trade_window_start: "16:00:00" # first M5 close eligible (strategy also gates)
+  trade_window_start: "16:05:00" # first M5 close eligible (past OANDA AU maint; strategy also gates)
   soft_cutoff: "21:00:00"        # no new entries after; mgmt may flatten weak trades
   prep_time: "07:30:00"
   atr_period_days: 14

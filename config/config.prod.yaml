@@ -66,7 +66,7 @@ fx_session:        # 16-fx-session-controller.md (Asia/Tokyo)
   tz: "Asia/Tokyo"
   range_start: "09:00:00"
   range_end: "11:00:00"
-  trade_window_start: "16:00:00"
+  trade_window_start: "16:05:00"
   soft_cutoff: "21:00:00"
   prep_time: "07:30:00"
   atr_period_days: 14
@@ -88,7 +88,7 @@ strategies:
     min_atr_frac: 0.15
     max_atr_frac: 1.25
     max_spread_pips: 1.5
-    trade_window_start: "16:00:00"
+    trade_window_start: "16:05:00"
     entry_window_end: "19:00:00"
     trail_after_r: 0
 

@@ -130,7 +130,7 @@ flowchart LR
 | Prep | 07:30 | Daily candles → 14d ATR; holiday check |
 | Range build | 09:00–11:00 | Accumulate Tokyo range high/low; seed session VWAP |
 | Range lock | 11:00 | Freeze `OpeningHigh` / `OpeningLow` |
-| Trade window | 16:00–19:00 | Evaluate TRLD on each M5 close (London morning) |
+| Trade window | 16:05–19:00 | Evaluate TRLD on each M5 close (London morning; past OANDA AU daily maint) |
 | Soft cutoff | 21:00 | No new entries |
 | Hard flatten | Friday `16:00` `America/New_York` | Flat into weekend FX gap |
 | Kill zones | ±30–60m around high-impact USD/JPY events | Block entries; BE or flatten if in trade |
@@ -157,7 +157,7 @@ sequenceDiagram
   Clock->>FXC: 09:00-11:00 build range
   Clock->>FXC: 11:00 lock range
   Note over TRLD: Idle until London window
-  Clock->>TRLD: M5 close in 16:00-19:00 JST
+  Clock->>TRLD: M5 close in 16:05-19:00 JST
   TRLD->>FXC: read SessionState
   alt Matrix satisfied and news clear
     TRLD->>Risk: Signal long or short

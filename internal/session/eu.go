@@ -29,7 +29,7 @@ type Config struct {
 	TZ               string
 	RangeStart       string // "08:00:00" / FX "09:00:00"
 	RangeEnd         string // "09:00:00" / FX "11:00:00"
-	TradeWindowStart string // "09:05:00" / FX "16:00:00"
+	TradeWindowStart string // "09:05:00" / FX "16:05:00"
 	ATRPeriodDays    int
 	VolMACandles     int
 	Instruments      []string

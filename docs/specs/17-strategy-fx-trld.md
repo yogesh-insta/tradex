@@ -71,7 +71,7 @@ Otherwise return **nil**.
 
 ### Entry window & re-entry
 
-- **Entry window:** M5 closes from `trade_window_start` (default 16:00 `Asia/Tokyo`)
+- **Entry window:** M5 closes from `trade_window_start` (default 16:05 `Asia/Tokyo`)
   until `entry_window_end` (default 19:00). No new signals after that; management still
   runs on open trades.
 - **Re-entry:** same-day re-entry after a stop-out is **not** allowed for FX TRLD.
@@ -96,7 +96,7 @@ fx_trld:
   min_atr_frac: 0.15          # skip tiny Tokyo ranges
   max_atr_frac: 1.25          # skip already-blown Asia ranges
   max_spread_pips: 1.5        # USD_JPY; pip = 0.01 JPY
-  trade_window_start: "16:00:00"  # Asia/Tokyo (must match session)
+  trade_window_start: "16:05:00"  # Asia/Tokyo (must match session; past OANDA AU maint)
   entry_window_end: "19:00:00"    # Asia/Tokyo
   trail_after_r: 0                # 0 = off; enable only after backtest
 ```
