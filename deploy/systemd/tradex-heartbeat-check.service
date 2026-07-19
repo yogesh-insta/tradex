@@ -1,0 +1,13 @@
+[Unit]
+Description=Check Tradex GCS heartbeat freshness
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradex
+Group=tradex
+WorkingDirectory=/opt/tradex
+Environment=TRADEX_ENV=demo
+EnvironmentFile=/etc/tradex/tradex.env
+ExecStart=/usr/bin/python3 /opt/tradex/deploy/systemd/tradex-heartbeat-check.py
