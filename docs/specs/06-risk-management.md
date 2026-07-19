@@ -34,7 +34,7 @@ switch. Evaluated **per account** (v1: one EU account).
 5. **Concurrency (per index):** reject `already_open` if an open trade exists for the
    instrument.
 6. **Correlation guard:** reject `correlated_open` if any instrument in the same
-   correlation group is open (v1 group: `{DE40_EUR, FR40_EUR}` → only one at a time).
+   correlation group is open (v1 group: `{DE30_EUR, FR40_EUR}` → only one at a time).
 7. **Max concurrent:** reject `max_concurrent` if open positions ≥ `max_concurrent`.
 8. **Consecutive losses:** if the consecutive-loss counter ≥ `consecutive_loss_halt` (3)
    → force `SYSTEM_LOCKED`, reject `consecutive_loss_breaker`.
@@ -73,7 +73,7 @@ risk:
   max_leverage: 5.0
   news_block_before: 30m
   correlation_groups:
-    - ["DE40_EUR", "FR40_EUR"]
+    - ["DE30_EUR", "FR40_EUR"]
 ```
 
 ## Failure modes

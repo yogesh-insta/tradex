@@ -7,8 +7,10 @@ architecture wins and the spec should be corrected.
 ## v1 scope
 
 - **Strategy:** EU LOVE (London Open Volatility Extension) only.
-- **Instruments:** `DE40_EUR`, `FR40_EUR` (exact OANDA symbols verified via
+- **Instruments:** `DE30_EUR`, `FR40_EUR` (exact OANDA symbols verified via
   `GET /v3/accounts/{id}/instruments` at boot — see `07-order-executor.md`).
+  AU practice uses `DE30_EUR` (DAX / Germany 40 CFD); conceptual docs may still
+  say “Germany 40”.
 - **Account:** one OANDA account for the EU market, funded ~$5,000 USD, `fxpractice`
   (paper) host for validation.
 - **Deferred:** US Sweep, Asia mean-reversion, tick data lake, offline backtest harness.
@@ -33,6 +35,7 @@ market data to execution, then the supporting services and config).
 | 11 | [`11-trade-ledger-persistence.md`](./11-trade-ledger-persistence.md) | Async publisher → Pub/Sub → BigQuery trade ledger |
 | 12 | [`12-observability-and-alerts.md`](./12-observability-and-alerts.md) | Alerts, liveness, reconciliation, drawdown monitoring |
 | 13 | [`13-configuration.md`](./13-configuration.md) | Per-environment config file + Secret Manager layout |
+| 14 | [`14-dashboard.md`](./14-dashboard.md) | Read-only Cloud Run ops dashboard (open trades, health, calendar, per-day PL) |
 
 ## Conventions used in every spec
 

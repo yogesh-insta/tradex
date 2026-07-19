@@ -72,3 +72,4 @@ observability:
 ## Out of scope
 
 - Taking trading action (risk/control-plane own that). Tick-level analytics (deferred).
+- Operator pull UI / per-day P&L dashboard — see `14-dashboard.md` (Cloud Run, read-only).

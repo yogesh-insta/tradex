@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (gitignored). Do NOT commit real values.
+# Adapted from ../fxtrade/deploy/gcp/terraform/terraform.tfvars.example
+
+project_id = "tradex-dev"
+zone       = "us-east1-b"
+
+# Restrict SSH / control-plane admin access to your public IP:
+# admin_cidr = "203.0.113.10/32"
+
+# SSH public key for GitHub Actions / admin access (user:ssh-ed25519 AAAA... comment)
+# ssh_public_keys = "ym:ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... ym@laptop"
+
+# Optional external health monitoring:
+# enable_health_firewall = true
+# health_port            = 8080
+# health_source_cidr     = "203.0.113.10/32"

@@ -43,7 +43,7 @@ type InstrumentMeta struct {
 ## Behavior
 
 1. **Instrument metadata (boot):** `GET /v3/accounts/{id}/instruments`; cache
-   `InstrumentMeta`. Verify the configured symbols exist (resolve `DE40_EUR`/`FR40_EUR` to
+   `InstrumentMeta`. Verify the configured symbols exist (resolve `DE30_EUR`/`FR40_EUR` to
    OANDA's actual codes; **fail boot** if a required instrument is missing).
 2. **Open (EU = MARKET + bracket):** single `POST /v3/accounts/{id}/orders`:
    - `type: "MARKET"`, `instrument`, signed `units`, `timeInForce: "FOK"`,

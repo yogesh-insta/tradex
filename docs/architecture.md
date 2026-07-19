@@ -28,14 +28,14 @@ ships the European path only**; US and Asia are staged behind the same interface
 
 | Area | v1 decision |
 | --- | --- |
-| Market / instruments | **EU LOVE only** — `DE40_EUR`, `FR40_EUR`. US Sweep + Asia deferred. |
+| Market / instruments | **EU LOVE only** — `DE30_EUR` (DAX / Germany 40), `FR40_EUR`. US Sweep + Asia deferred. |
 | EU entry | **Market order** after a **5-min candle closes fully outside** the 08:00–09:00 CET range (no wick entries). |
 | Timeframes | Range anchor = **1-hour** candle (08:00–09:00 window); execution anchor = **5-min**. Both pulled from OANDA REST into separate per-timeframe buffers at session start. |
 | US entry (future) | **Resting limit orders** at range extremes (Buy Limit 2 pips above range low, Sell Limit 2 pips below range high), placed 09:45:01 ET; opposite/unfilled order cancelled on confirmed close outside. |
 | Asia entry (future) | Deferred — decided when Asia is built. |
 | Accounts | **One OANDA account per market** (isolated margin + caps). EU account funded **~$5,000 USD** for v1. |
 | Risk (per account) | 1% equity/trade · **−$150 daily hard lock** · halt after **3 consecutive losses** · one trade per index. |
-| Correlation guard | `DE40`/`FR40` treated as correlated → **only one of the pair open at a time**. |
+| Correlation guard | `DE30`/`FR40` treated as correlated → **only one of the pair open at a time**. |
 | Kill switch | Daily breaker → **`SYSTEM_LOCKED`**; **no auto re-arm**; cleared only by a signed `RE_ARM` (snapshots new baseline equity). |
 | Control plane | Inbound **command webhook on VM `:8443`**, **HMAC-signed over TLS**; commands `FLATTEN` / `PAUSE` / `RESUME` / `RE_ARM`. |
 | Alerts | **Telegram** outbound; webhook inbound. |
@@ -308,7 +308,7 @@ flowchart LR
   `SessionState` to its strategy's `Analyze()`.
 
 Mapping (instrument → controller → strategy) is 1:1 per market, e.g.
-`NAS100_USD → US controller → US_Sweep`, `DE40_EUR → EU controller → EU_Breakout`.
+`NAS100_USD → US controller → US_Sweep`, `DE30_EUR → EU controller → EU_Breakout`.
 
 **Connections (summary):**
 
@@ -354,7 +354,7 @@ Strategy engine
 | Region (instruments) | Range window | Range anchor | Execution anchor | Entry |
 | --- | --- | --- | --- | --- |
 | US (`US100`, `SPX500`) | 09:30:00–09:44:59 ET | 5-min (3 candles) | 5-min | Resting limit (fade sweep) |
-| **EU (`DE40`, `FR40`)** | 08:00:00–08:59:59 CET | **1-hour (1 candle)** | **5-min** | **Market on close** |
+| **EU (`DE30`, `FR40`)** | 08:00:00–08:59:59 CET | **1-hour (1 candle)** | **5-min** | **Market on close** |
 | Asia (`JP225`, `AU200`) | 09:00:00–09:59:59 JST | 15-min (4 candles) | 15-min | Deferred |
 
 The VM's ingestion layer requests each explicit granularity from OANDA's REST candle
@@ -571,7 +571,7 @@ Single binary; the only writer to OANDA. Modules (each its own package, config-d
   - Per-trade: 1% equity risk, stop distance per strategy, margin/leverage gatekeeper.
   - Per-account portfolio: **−$150 daily loss hard lock**, max concurrent positions,
     consecutive-loss circuit breaker (halt after 3), correlation guard
-    (`DE40`/`FR40`; future `US100`/`SPX500`) allowing only one of a correlated pair.
+    (`DE30`/`FR40`; future `US100`/`SPX500`) allowing only one of a correlated pair.
   - One concurrent trade per index; no per-day trade cap beyond the above.
   - Kill switch: daily breaker → `SYSTEM_LOCKED` (halt all new entries; managed
     positions keep broker-side stops); cleared only by a signed `RE_ARM`.
@@ -756,7 +756,7 @@ for v1). Live vs paper is selected by the OANDA host/credentials, per account.
   Same-day re-entry after a stop-out is allowed. Whipsaw exposure is instead
   bounded by the portfolio-level controls (max daily loss, consecutive-loss
   circuit breaker) in the unified risk module.
-- **v1 = EU only:** first release ships `DE40`/`FR40` on the EU LOVE strategy;
+- **v1 = EU only:** first release ships `DE30`/`FR40` on the EU LOVE strategy;
   US and Asia are staged behind the same interfaces (§1.1, §4.2).
 - **Per-market accounts:** risk aggregates (−$150 daily lock, concurrency,
   consecutive-loss) are enforced **per account**, not globally.

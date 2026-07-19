@@ -1,0 +1,20 @@
+# Minimal config for local dashboard UI demos (no OANDA/GCS/BigQuery).
+#   export DASHBOARD_TOKEN=dev
+#   go run ./cmd/dashboard --config config/config.dashboard.mock.yaml
+#   open http://localhost:8080/?token=dev
+
+env: "dev"
+project: "tradex-dev"
+
+dashboard:
+  listen_addr: ":8080"
+  mock: true
+  auth:
+    mode: "bearer"
+    token: "${DASHBOARD_TOKEN}"
+  accounts:
+    - name: "eu-indices"
+      oanda_account_id: "mock-eu-indices"
+  cache_ttl: { overview: 60s, calendar: 60s, pl: 180s }
+  ui: { refresh_interval: 20s, pl_daily_lookback_days: 30, reporting_tz: "UTC" }
+  health: { heartbeat_stale: 120s, tick_stale: 60s, calendar_stale: 90m }

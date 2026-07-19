@@ -41,7 +41,7 @@ State schema (`calendar-state.json`):
 ### B. Trading holidays / half-days — checked-in config
 
 - A **checked-in config file** (per coding guidelines), validated yearly against exchange
-  calendars (Eurex/Xetra for DE40, Euronext for FR40). No external dependency, no failure
+  calendars (Eurex/Xetra for DE30/Germany 40, Euronext for FR40). No external dependency, no failure
   mode. Used by the session controller to skip closed days and early closes.
 
 ## Inputs / Outputs
@@ -82,7 +82,7 @@ calendar:
 - With a high-impact EU event 20 min out, `minsToHighImpact("EU") <= 30` and risk blocks
   entries / mgmt moves stops to breakeven.
 - Deleting the GCS object makes the VM fail-safe (blocks entries) without crashing.
-- On a Eurex holiday, the session controller does not activate for DE40.
+- On a Eurex holiday, the session controller does not activate for DE30.
 
 ## Out of scope
 

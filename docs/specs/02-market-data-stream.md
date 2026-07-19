@@ -8,7 +8,7 @@ source; authoritative OHLC is the candle builder's job (`03-candle-builder.md`).
 
 ## Inputs
 
-- OANDA **pricing stream** `GET /v3/accounts/{id}/pricing/stream?instruments=DE40_EUR,FR40_EUR`
+- OANDA **pricing stream** `GET /v3/accounts/{id}/pricing/stream?instruments=DE30_EUR,FR40_EUR`
   (streamed PRICE + HEARTBEAT messages).
 - Config: instrument list, staleness thresholds, reconnect backoff (`13-configuration.md`).
 
@@ -41,7 +41,7 @@ source; authoritative OHLC is the candle builder's job (`03-candle-builder.md`).
 
 ```yaml
 stream:
-  instruments: ["DE40_EUR", "FR40_EUR"]
+  instruments: ["DE30_EUR", "FR40_EUR"]
   heartbeat_timeout: 15s
   stale_halt: 60s
   backoff_base: 1s

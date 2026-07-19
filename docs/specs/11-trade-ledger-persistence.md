@@ -38,7 +38,7 @@ sidecars. Tick-level capture is **deferred** in v1.
 | `trade_id` | STRING | OANDA trade id (primary key for MERGE) |
 | `client_order_id` | STRING | idempotency key from executor |
 | `account` | STRING | per-market account |
-| `instrument` | STRING | `DE40_EUR` / `FR40_EUR` |
+| `instrument` | STRING | `DE30_EUR` / `FR40_EUR` |
 | `strategy` | STRING | `EU_LOVE` |
 | `direction` | STRING | LONG/SHORT |
 | `units` | INT64 | signed |

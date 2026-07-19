@@ -19,11 +19,17 @@ go.work.sum
 *.env
 .env
 .env.*
+!.env.example
 *-key.json
 *credentials*.json
 service-account*.json
 config/*.local.yaml
 secrets/
+**/terraform.tfvars
+!**/terraform.tfvars.example
+**/terraform.tfstate
+**/terraform.tfstate.*
+**/.terraform/
 
 # OS / editor
 .DS_Store
@@ -37,3 +43,7 @@ Thumbs.db
 tmp/
 *.jsonl
 *.jsonl.gz
+
+# Backtester artifacts
+out/
+data/candles/

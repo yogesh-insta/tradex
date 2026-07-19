@@ -16,7 +16,7 @@ never emits signals or touches orders.
 
 ## Outputs
 
-- `SessionState` per EU instrument (`DE40_EUR`, `FR40_EUR`), refreshed continuously
+- `SessionState` per EU instrument (`DE30_EUR`, `FR40_EUR`), refreshed continuously
   during the session, read-only to `Analyze()`.
 
 ## Behavior
@@ -50,7 +50,7 @@ eu_session:
   trade_window_start: "09:05:00"   # first M5 close eligible for entry
   atr_period_days: 14
   vol_ma_candles: 12
-  instruments: ["DE40_EUR", "FR40_EUR"]
+  instruments: ["DE30_EUR", "FR40_EUR"]
 ```
 
 ## Failure modes

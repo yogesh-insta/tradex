@@ -132,7 +132,7 @@ const (
 ## Rules
 
 - `ClientOrderID` format: `{strategy}-{instrument}-{yyyymmdd}-{hhmm}` (e.g.
-  `eu_love-DE40_EUR-20260717-0905`), unique per intended entry so retries dedupe.
+  `eu_love-DE30_EUR-20260717-0905`), unique per intended entry so retries dedupe.
 - `RiskDistance` is captured **at entry** from the original SL and never recomputed, so
   breakeven/R math is stable even after the SL is moved.
 - Monetary values use `float64` in memory but are **formatted to the instrument's price

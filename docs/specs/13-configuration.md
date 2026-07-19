@@ -26,7 +26,7 @@ env: "dev"
 project: "tradex-dev"
 
 stream:            # 02-market-data-stream.md
-  instruments: ["DE40_EUR", "FR40_EUR"]
+  instruments: ["DE30_EUR", "FR40_EUR"]
   heartbeat_timeout: 15s
   stale_halt: 60s
   backoff_base: 1s
@@ -35,7 +35,7 @@ stream:            # 02-market-data-stream.md
 
 candles:           # 03-candle-builder.md
   price: "M"
-  timeframes: { DE40_EUR: ["H1","M5"], FR40_EUR: ["H1","M5"] }
+  timeframes: { DE30_EUR: ["H1","M5"], FR40_EUR: ["H1","M5"] }
   window_max: 50
   rest_confirm_delay: 2s
   rest_confirm_timeout: 5s
@@ -47,7 +47,7 @@ eu_session:        # 04-eu-session-controller.md
   trade_window_start: "09:05:00"
   atr_period_days: 14
   vol_ma_candles: 12
-  instruments: ["DE40_EUR", "FR40_EUR"]
+  instruments: ["DE30_EUR", "FR40_EUR"]
 
 eu_love:           # 05-strategy-eu-love.md
   volume_spike_mult: 1.0
@@ -64,7 +64,7 @@ risk:              # 06-risk-management.md
   max_margin_frac: 0.10
   max_leverage: 5.0
   news_block_before: 30m
-  correlation_groups: [["DE40_EUR","FR40_EUR"]]
+  correlation_groups: [["DE30_EUR","FR40_EUR"]]
 
 executor:          # 07-order-executor.md
   account_id: "${OANDA_ACCOUNT_ID}"    # from Secret Manager
@@ -109,17 +109,31 @@ observability:     # 12-observability-and-alerts.md
   reconcile_interval: 20s
   drawdown_warn: 120
   alert_topic: "alerts"
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+
+dashboard:         # 14-dashboard.md (Cloud Run; not loaded by the trader binary)
+  listen_addr: ":8080"
+  auth: { mode: "bearer", token_ref: "projects/…/secrets/dashboard-token" }
+  gcs:
+    calendar_object: "gs://tradex-<env>-state/calendar-state.json"
+    status_object: "gs://tradex-<env>-state/status.json"
+  bigquery: { project: "tradex-<env>", dataset: "tradex", table: "trade_ledger" }
+  cache_ttl: { overview: 60s, calendar: 60s, pl: 180s }
+  ui: { refresh_interval: 20s, pl_daily_lookback_days: 30, reporting_tz: "UTC" }
 ```
 
 ## Secrets (Secret Manager, per project)
 
 | Secret | Used by |
 | --- | --- |
-| `oanda-token` | executor, market-data, candle-builder |
-| `oanda-account-id` (EU) | executor, risk |
+| `oanda-token` | executor, market-data, candle-builder, dashboard (read-only) |
+| `oanda-account-id` (EU) | executor, risk, dashboard (read-only) |
 | `control-hmac` | control-plane |
 | `telegram-token`, `telegram-chat` | observability/notifier |
 | `finnhub-key` (or provider key) | calendar poller |
+| `dashboard-token` | dashboard auth (bearer mode) |
 
 ## Validation (at boot)
 

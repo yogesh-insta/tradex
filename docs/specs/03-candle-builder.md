@@ -46,7 +46,7 @@ signal.
 candles:
   price: "M"            # mid
   timeframes:
-    DE40_EUR: ["H1", "M5"]
+    DE30_EUR: ["H1", "M5"]
     FR40_EUR: ["H1", "M5"]
   window_max: 50
   rest_confirm_delay: 2s   # wait after boundary before pulling authoritative close
