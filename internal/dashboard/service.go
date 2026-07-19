@@ -272,9 +272,9 @@ func (s *Service) Calendar(ctx context.Context) CalendarResponse {
 			TimeUTC: ev.Time, TimeBerlin: ev.Time.In(s.euLoc).Format("2006-01-02 15:04 MST"),
 		})
 	}
-	// Most recent (latest) event times first for the ops dashboard.
+	// Soonest upcoming event times first for the ops dashboard.
 	sort.Slice(out.Events, func(i, j int) bool {
-		return out.Events[i].TimeUTC.After(out.Events[j].TimeUTC)
+		return out.Events[i].TimeUTC.Before(out.Events[j].TimeUTC)
 	})
 	s.cache.Set(key, out, s.cfg.CacheTTL.Calendar.D())
 	return out

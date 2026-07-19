@@ -149,7 +149,7 @@ func TestCalendarParsesStateAndFailSafe(t *testing.T) {
 	}
 }
 
-func TestCalendarSortsLatestFirst(t *testing.T) {
+func TestCalendarSortsSoonestFirst(t *testing.T) {
 	cal := []byte(`{
 		"as_of":"2026-07-19T11:00:00Z",
 		"events":[
@@ -163,15 +163,15 @@ func TestCalendarSortsLatestFirst(t *testing.T) {
 	if len(c.Events) != 3 {
 		t.Fatalf("want 3 events, got %+v", c.Events)
 	}
-	want := []string{"Later", "Mid", "Soon"}
+	want := []string{"Soon", "Mid", "Later"}
 	for i, title := range want {
 		if c.Events[i].Title != title {
-			t.Fatalf("events[%d]=%q want %q (latest-first)", i, c.Events[i].Title, title)
+			t.Fatalf("events[%d]=%q want %q (soonest-first)", i, c.Events[i].Title, title)
 		}
 	}
 	for i := 1; i < len(c.Events); i++ {
-		if c.Events[i-1].TimeUTC.Before(c.Events[i].TimeUTC) {
-			t.Fatalf("not descending: %v before %v", c.Events[i-1].TimeUTC, c.Events[i].TimeUTC)
+		if c.Events[i-1].TimeUTC.After(c.Events[i].TimeUTC) {
+			t.Fatalf("not ascending: %v after %v", c.Events[i-1].TimeUTC, c.Events[i].TimeUTC)
 		}
 	}
 }
