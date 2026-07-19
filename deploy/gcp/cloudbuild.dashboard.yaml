@@ -1,0 +1,11 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deploy/docker/Dockerfile.dashboard
+      - -t
+      - ${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
