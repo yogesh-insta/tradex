@@ -189,7 +189,7 @@ land in GCS and are batch-loaded.
 
 **Calendar state is persisted, not pushed.** Cloud Scheduler triggers the stateless
 poller every 15–30 min. The poller runs **Finnhub primary → Gemini Live Search fallback**
-(model `gemini-2.5-flash`), posts the candidate to **Telegram** for ops review, then
+(model `gemini-2.5-flash-lite`), posts the candidate to **Telegram** for ops review, then
 **writes a durable JSON object** (`calendar-state.json` in GCS and/or on-VM file — the
 poller holds nothing between runs). Normative pipeline:
 [`specs/10-economic-calendar.md`](./specs/10-economic-calendar.md). The VM reads that
@@ -565,7 +565,7 @@ state** the VM reads (fail-safe if stale/missing):
 - **Economic events** (CPI, NFP, FOMC, ECB, BOJ, …) — the news filter. Flow:
   `Cloud Scheduler → poller → Finnhub (7d high-impact US/JP/EU) → [fallback Gemini
   Live Search] → Telegram review → write calendar-state.json (GCS/file) → VM RAM cache`.
-  Finnhub free tier may **403**; Gemini fallback (`gemini-2.5-flash` + Live Google Search
+  Finnhub free tier may **403**; Gemini fallback (`gemini-2.5-flash-lite` + Live Google Search
   Grounding) is **required**. Telegram is the ops validation channel; recommended policy
   auto-writes durable state after a successful `sendMessage`, with ops override if wrong.
   This supersedes the earlier interim **file-only / manual paste** lock — the file remains

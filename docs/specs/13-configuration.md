@@ -146,7 +146,7 @@ calendar:          # 10-economic-calendar.md
   economic:
     provider: "finnhub"              # primary; Finnhub free may 403 → fallback required
     fallback_provider: "gemini"      # Live Search via google.golang.org/genai
-    gemini_model: "gemini-2.5-flash"
+    gemini_model: "gemini-2.5-flash-lite"
     poll_interval: 20m
     lookahead_days: 7
     gcs_object: "gs://tradex-dev-state/calendar-state.json"

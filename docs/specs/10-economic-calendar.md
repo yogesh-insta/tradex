@@ -39,7 +39,7 @@ GCS file remains the **durable store** the trader reads after each successful ru
 
 - Finnhub Economic Calendar API (primary), authenticated with `FINNHUB_API_KEY`.
 - Gemini Live Search via official Google GenAI Go SDK (fallback), authenticated with
-  `GEMINI_API_KEY`, model `gemini-2.5-flash`.
+  `GEMINI_API_KEY`, model `gemini-2.5-flash-lite`.
 - Telegram Bot API (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) for review delivery.
 - Holiday config file (VM).
 - Clock: date window from `time.Now().UTC()` for the next **7 days**.
@@ -105,7 +105,7 @@ Finnhub, Gemini, or Telegram.
 #### 2. FALLBACK — Gemini Live Search
 
 - Invoke when Finnhub fails, errors, or returns 0 matching events.
-- Use the **official Google GenAI Go SDK**, model **`gemini-2.5-flash`**.
+- Use the **official Google GenAI Go SDK**, model **`gemini-2.5-flash-lite`**.
 - Enable **Live Google Search Grounding** so the model consults real-time public calendars.
 - Enforce a **strict JSON schema** matching the internal Calendar State / Event structs
   (same durable schema as above). Reject / retry on schema mismatch.
@@ -156,7 +156,7 @@ calendar:
   economic:
     provider: "finnhub"           # primary; gemini is automatic fallback
     fallback_provider: "gemini"
-    gemini_model: "gemini-2.5-flash"
+    gemini_model: "gemini-2.5-flash-lite"
     poll_interval: 20m
     lookback_days: 0
     lookahead_days: 7             # window: now UTC → +7d

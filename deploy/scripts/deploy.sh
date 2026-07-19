@@ -40,5 +40,9 @@ sudo systemctl set-environment TRADEX_ENV="${ENVIRONMENT}"
 sudo systemctl restart tradex.service
 
 sleep 3
-sudo systemctl --no-pager --lines=20 status tradex.service
+if ! sudo systemctl --no-pager --lines=20 status tradex.service; then
+  echo "==> tradex.service unhealthy; recent logs:" >&2
+  sudo journalctl -u tradex.service -n 40 --no-pager >&2 || true
+  exit 1
+fi
 echo "==> deployed $(git rev-parse --short HEAD) to ${ENVIRONMENT}"

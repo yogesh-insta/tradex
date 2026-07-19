@@ -143,7 +143,7 @@ calendar:          # 10-economic-calendar.md
   economic:
     provider: "file"             # VM read path; poller writes local_file / GCS later
     fallback_provider: "gemini"
-    gemini_model: "gemini-2.5-flash"
+    gemini_model: "gemini-2.5-flash-lite"
     poll_interval: 20m
     lookahead_days: 7
     state_file: "data/calendar-state.json"

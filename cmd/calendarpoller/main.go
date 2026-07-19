@@ -72,7 +72,7 @@ func run() error {
 	}
 	model := ec.GeminiModel
 	if model == "" {
-		model = "gemini-2.5-flash"
+		model = "gemini-2.5-flash-lite"
 	}
 
 	telegramReview := true

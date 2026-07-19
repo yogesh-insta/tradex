@@ -11,7 +11,7 @@ import (
 )
 
 // GeminiClient is the Live Search fallback using the official Google GenAI Go
-// SDK (google.golang.org/genai). Model defaults to gemini-2.5-flash with
+// SDK (google.golang.org/genai). Model defaults to gemini-2.5-flash-lite with
 // Google Search grounding enabled.
 //
 // Note: older generative-ai-go is deprecated; this package uses Models.GenerateContent
@@ -25,7 +25,7 @@ type GeminiClient struct {
 	Generate func(ctx context.Context, client *genai.Client, model string, prompt string) (string, error)
 }
 
-const defaultGeminiModel = "gemini-2.5-flash"
+const defaultGeminiModel = "gemini-2.5-flash-lite"
 
 // FetchState asks Gemini (with Google Search) for the next lookaheadDays of
 // high-impact EU/US/JP events and returns a parsed State. as_of is stamped
