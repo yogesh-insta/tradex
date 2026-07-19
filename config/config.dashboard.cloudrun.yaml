@@ -109,4 +109,5 @@ dashboard:
   # status_file omitted — health panel degrades until trader publishes status.json
   cache_ttl: { overview: 60s, calendar: 60s, pl: 180s }
   ui: { refresh_interval: 20s, pl_daily_lookback_days: 30, reporting_tz: "UTC" }
-  health: { heartbeat_stale: 120s, tick_stale: 60s, calendar_stale: 90m }
+  # The poller runs every 2h; allow one delayed scheduler invocation.
+  health: { heartbeat_stale: 120s, tick_stale: 60s, calendar_stale: 3h }
