@@ -18,6 +18,7 @@ Monitoring**.
 | **Daily drawdown** | realized loss approaching −$150 (e.g. −$120) | warn | notify (breaker at −$150) |
 | **Breaker tripped** | state → `SYSTEM_LOCKED` | high | notify: reason + that `RE_ARM` is required |
 | **Calendar fail-safe** | calendar stale/missing → blocking entries | warn | notify; check poller |
+| **Calendar pipeline fail** | Finnhub + Gemini both fail, or Telegram review send fails | warn | notify; keep last good state; see `10-economic-calendar.md` |
 | **VM liveness** | heartbeat missing > `liveness_timeout` | high | page (external uptime check) |
 | **Publisher saturation** | telemetry buffer drop-oldest firing | warn | notify; Pub/Sub health |
 
@@ -33,7 +34,14 @@ Monitoring**.
    calendar freshness (`as_of` age), publisher buffer depth.
 4. **Telegram notifier (Cloud Run):** consumes alert events from Pub/Sub; formats concise
    messages (state changes, breaker, execution errors, daily P&L summary at session end).
-5. **Analytics/KPI (scheduled SQL):** Sharpe, profit factor, max drawdown, win rate,
+5. **Calendar review (poller):** after each successful Finnhub/Gemini compile, the calendar
+   poller POSTs a review message to Telegram
+   (`https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/sendMessage`) with source header
+   (`Finnhub Primary` / `Gemini Fallback Pipeline`) and a fenced `json` body — ops
+   validation channel, not a trading alert. Normative detail:
+   [`10-economic-calendar.md`](./10-economic-calendar.md). Shares
+   `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` with the notifier secrets.
+6. **Analytics/KPI (scheduled SQL):** Sharpe, profit factor, max drawdown, win rate,
    equity curve over `trade_ledger` — reporting only, off the hot path.
 
 ## Config keys

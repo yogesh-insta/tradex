@@ -19,28 +19,38 @@ Solid arrows = synchronous in-process; dotted arrows = async or in-RAM state.
 5. **Every order is bracketed at entry** (SL/TP placed atomically) so exits survive VM death.
 6. **State lives in RAM, rebuilt from OANDA on boot** — OANDA is the source of truth.
 
-Reference sketch: [Excalidraw board](https://excalidraw.com/#json=7Yf6-OlR3emQ_pSR5uxg3,CMf0pyqkzMx4vAhDxZ7e-w).
+Current design sketch: [Excalidraw board](https://excalidraw.com/#json=g2no1-pVrHsLa5t1qRxiJ,gZT4eCEMiPx7N_XlHGA0cA).
+Prior reference sketch: [Excalidraw board](https://excalidraw.com/#json=7Yf6-OlR3emQ_pSR5uxg3,CMf0pyqkzMx4vAhDxZ7e-w).
+
+FX USD/JPY lane (design + specs): [`fx-usdjpy-architecture.md`](./fx-usdjpy-architecture.md)
+and specs `15`–`19`.
 
 ### 1.1 v1 scope & decision log
 
 Sections below describe the **full multi-market target**. The **first release (v1)
-ships the European path only**; US and Asia are staged behind the same interfaces.
+ships the European path only**. The **FX TRLD** lane (`USD_JPY`) is the next market
+behind the same interfaces (architecture + specs landed; implementation after
+validation gates). US Sweep and Asia **index** mean-reversion remain deferred.
 
-| Area | v1 decision |
+| Area | v1 / lane decision |
 | --- | --- |
-| Market / instruments | **EU LOVE only** — `DE30_EUR` (DAX / Germany 40), `FR40_EUR`. US Sweep + Asia deferred. |
+| Market / instruments (v1 shipped) | **EU LOVE** — `DE30_EUR` (DAX / Germany 40), `FR40_EUR`. |
+| Market / instruments (next lane) | **FX TRLD** — `USD_JPY` on a dedicated account; see `fx-usdjpy-architecture.md`. |
 | EU entry | **Market order** after a **5-min candle closes fully outside** the 08:00–09:00 CET range (no wick entries). |
-| Timeframes | Range anchor = **1-hour** candle (08:00–09:00 window); execution anchor = **5-min**. Both pulled from OANDA REST into separate per-timeframe buffers at session start. |
+| FX entry | **Market order** after a **5-min candle closes fully outside** the 09:00–11:00 JST Tokyo range during the London drive window (no wick entries). |
+| Timeframes | Range + execution anchors are per market; EU/FX both use M5 execution with session range lock. Pulled from OANDA REST into separate per-timeframe buffers. |
 | US entry (future) | **Resting limit orders** at range extremes (Buy Limit 2 pips above range low, Sell Limit 2 pips below range high), placed 09:45:01 ET; opposite/unfilled order cancelled on confirmed close outside. |
-| Asia entry (future) | Deferred — decided when Asia is built. |
-| Accounts | **One OANDA account per market** (isolated margin + caps). EU account funded **~$5,000 USD** for v1. |
-| Risk (per account) | 1% equity/trade · **−$150 daily hard lock** · halt after **3 consecutive losses** · one trade per index. |
-| Correlation guard | `DE30`/`FR40` treated as correlated → **only one of the pair open at a time**. |
-| Kill switch | Daily breaker → **`SYSTEM_LOCKED`**; **no auto re-arm**; cleared only by a signed `RE_ARM` (snapshots new baseline equity). |
+| Asia index entry (future) | Deferred — distinct from FX TRLD (FX is a currency lane, not JP225/AU200). |
+| Accounts | **One OANDA account per market** (isolated margin + caps). EU account funded **~$5,000 USD** for v1; FX account separate when enabled. |
+| Risk (per account) | 1% equity/trade · **−$150 daily hard lock** (sized per account) · halt after **3 consecutive losses** · one open trade per instrument. |
+| FX daily trade cap | **One accepted entry per Tokyo session day** on `USD_JPY` (no same-day re-entry). EU keeps no daily cap (§10). |
+| Correlation guard | `DE30`/`FR40` treated as correlated → **only one of the pair open at a time**. FX v1 single-instrument (no cross group yet). |
+| Kill switch | Daily breaker → **`SYSTEM_LOCKED`**; **no auto re-arm**; cleared only by a signed `RE_ARM` (snapshots new baseline equity). Per account. |
 | Control plane | Inbound **command webhook on VM `:8443`**, **HMAC-signed over TLS**; commands `FLATTEN` / `PAUSE` / `RESUME` / `RE_ARM`. |
 | Alerts | **Telegram** outbound; webhook inbound. |
 | Persistence | **Trade ledger → BigQuery**; **tick lake deferred**. |
-| Validation | **OANDA `fxpractice` paper account**; **no offline backtest harness** in v1. |
+| Validation (EU v1) | **OANDA `fxpractice` paper account**; no offline backtest harness required for EU v1. |
+| Validation (FX) | **Mandatory offline backtest gates** then paper soak before live (`19-fx-validation-backtest.md`). |
 
 ---
 
@@ -62,7 +72,7 @@ flowchart LR
     direction TB
     MD["Market data<br/>reconnect · staleness"]
     CANDLES["Candle builder<br/>authoritative OHLC"]
-    SESS["Session controllers<br/>per market: US / EU / Asia"]
+    SESS["Session controllers<br/>per market: US / EU / FX / Asia"]
     ENGINE["Strategy engine<br/>Analyze() on candle-close"]
     RISK["Unified risk<br/>size · gates · kill switch"]
     EXEC["Executor<br/>bracket order"]
@@ -123,10 +133,10 @@ flowchart LR
   EXEC["Executor<br/>(VM)"]
   SESS["Session controllers<br/>(VM)"]
   RISK["Unified risk<br/>(VM)"]
-  CALAPI["Economic calendar API<br/>Finnhub / FMP"]
+  CALAPI["Economic calendar<br/>Finnhub primary · Gemini fallback"]
   SCHED["Cloud Scheduler<br/>every 15-30 min"]
-  CALSTORE["Calendar state store<br/>GCS object (JSON) · durable"]
-  TG["Telegram"]
+  CALSTORE["Calendar state store<br/>GCS / file (JSON) · durable"]
+  TG["Telegram<br/>review + alerts"]
 
   subgraph CR["Async sidecars · Cloud Run + Pub/Sub"]
     direction TB
@@ -135,7 +145,7 @@ flowchart LR
     BQLOG["BigQuery logger"]
     KPI["Analytics / KPI"]
     NOTIF["Telegram notifier"]
-    POLL["Calendar poller<br/>stateless · scheduled"]
+    POLL["Calendar poller<br/>Finnhub→Gemini→TG→write"]
   end
 
   subgraph LAKE["Data lake · zero-cost"]
@@ -155,7 +165,8 @@ flowchart LR
   NOTIF -. .-> TG
   SCHED -. trigger .-> POLL
   CALAPI -. fetch .-> POLL
-  POLL -- "write state" --> CALSTORE
+  POLL -. "review candidate" .-> TG
+  POLL -- "write durable state" --> CALSTORE
   CALSTORE -. "read → RAM cache" .-> SESS
   CALSTORE -. "read → RAM cache" .-> RISK
   BQLOG -. append .-> BQ
@@ -177,13 +188,16 @@ Two write paths into BigQuery: the **logger** appends the trade ledger directly;
 land in GCS and are batch-loaded.
 
 **Calendar state is persisted, not pushed.** Cloud Scheduler triggers the stateless
-poller every 15–30 min; the poller fetches the economic calendar and **writes a durable
-JSON object** (`calendar-state.json` in GCS — the poller holds nothing between runs). The
-VM reads that object on its own timer into a small **RAM cache**, which the session
-controllers, risk module, and management loop consult. This survives poller cold-starts
-and VM restarts, and is **fail-safe**: if the object is missing or its `as_of` timestamp
-is stale, the VM treats "event imminent" (blocks new entries / tightens stops) rather
-than trading blind. (Firestore is an alternative store; GCS is chosen for zero-cost reuse.)
+poller every 15–30 min. The poller runs **Finnhub primary → Gemini Live Search fallback**
+(model `gemini-2.5-flash`), posts the candidate to **Telegram** for ops review, then
+**writes a durable JSON object** (`calendar-state.json` in GCS and/or on-VM file — the
+poller holds nothing between runs). Normative pipeline:
+[`specs/10-economic-calendar.md`](./specs/10-economic-calendar.md). The VM reads that
+object on its own timer into a small **RAM cache**, which the session controllers, risk
+module, and management loop consult. This survives poller cold-starts and VM restarts,
+and is **fail-safe**: if the object is missing or its `as_of` timestamp is stale, the VM
+treats "event imminent" (blocks new entries / tightens stops) rather than trading blind.
+(Firestore is an alternative store; GCS / local file is the durable path.)
 
 ### State recovery (on boot)
 
@@ -208,7 +222,8 @@ flowchart LR
   subgraph STRAT["Strategy registry — Analyze() is pure"]
     direction TB
     US["US_Sweep"]
-    EU["EU_Breakout"]
+    EU["EU_LOVE"]
+    FX["FX_TRLD"]
     ASIA["Asia_MeanRev"]
   end
 
@@ -222,12 +237,15 @@ flowchart LR
   TICK -- MarketEvent --> ROUTER
   ROUTER -- "by instrument" --> US
   ROUTER --> EU
+  ROUTER --> FX
   ROUTER --> ASIA
   STATE -. SessionState .-> US
   STATE -. .-> EU
+  STATE -. .-> FX
   STATE -. .-> ASIA
   US -- Signal --> SIGNAL
   EU --> SIGNAL
+  FX --> SIGNAL
   ASIA --> SIGNAL
   ASIA -. nil .-> NOOP
   SIGNAL --> RISK
@@ -241,14 +259,14 @@ flowchart LR
   classDef muted fill:#f1f5f9,stroke:#94a3b8,color:#0f172a;
 
   class TICK,ROUTER,EXEC hot;
-  class US,EU,ASIA strat;
+  class US,EU,FX,ASIA strat;
   class SIGNAL,RISK sig;
   class STATE,NOOP,REJECT,OANDA muted;
 ```
 
 The router dispatches each event to **exactly one** strategy (the instrument's match);
-the three boxes show the registry, not parallel execution. Most `Analyze()` calls
-return `nil` (no setup) — only a satisfied entry matrix yields a `Signal`.
+the registry boxes are not parallel execution. Most `Analyze()` calls return `nil`
+(no setup) — only a satisfied entry matrix yields a `Signal`.
 
 ### 4.1 Session controllers — one per market
 
@@ -265,31 +283,36 @@ flowchart LR
     direction TB
     USC["US controller<br/>active 09:30-16:00 ET<br/>locks 09:30-09:45 range · RSI · volMA"]
     EUC["EU controller<br/>active 08:00-17:30 CET<br/>08:00-09:00 range · 14d ATR · VWAP"]
-    ASC["Asia controller<br/>active Tokyo session<br/>overnight gap · Bollinger"]
+    FXC["FX controller<br/>active Tokyo clock<br/>09:00-11:00 JST range · 14d ATR · VWAP"]
+    ASC["Asia index controller<br/>active Tokyo session<br/>overnight gap · Bollinger"]
   end
 
   subgraph STRATS["Strategies"]
     direction TB
     US["US_Sweep"]
-    EU["EU_Breakout"]
+    EU["EU_LOVE"]
+    FX["FX_TRLD"]
     ASIA["Asia_MeanRev"]
   end
 
   CANDLES -. "ticks + closed candles" .-> USC
   CANDLES -. .-> EUC
+  CANDLES -. .-> FXC
   CANDLES -. .-> ASC
   REST -. "pre-session history" .-> EUC
+  REST -. .-> FXC
   REST -. .-> ASC
   USC -. "SessionState" .-> US
   EUC -. .-> EU
+  FXC -. .-> FX
   ASC -. .-> ASIA
 
   classDef ctrl fill:#f1f5f9,stroke:#94a3b8,color:#0f172a;
   classDef strat fill:#eef2ff,stroke:#6366f1,color:#1e1b2e;
   classDef muted fill:#f8fafc,stroke:#cbd5e1,color:#0f172a;
 
-  class USC,EUC,ASC ctrl;
-  class US,EU,ASIA strat;
+  class USC,EUC,FXC,ASC ctrl;
+  class US,EU,FX,ASIA strat;
   class CANDLES,REST muted;
 ```
 
@@ -299,16 +322,18 @@ flowchart LR
   `Europe/Berlin`/`London`, `Asia/Tokyo`) with DST + trading-holiday calendar; only
   activates during its own session (efficiency + correctness).
 - **Records the daily parameters** its strategy needs (US: 09:30-09:45 range + RSI +
-  volMA; EU: 08:00-09:00 range + 14-day ATR + running VWAP; Asia: overnight gap +
-  Bollinger) — held in RAM.
+  volMA; EU: 08:00-09:00 range + 14-day ATR + running VWAP; FX: 09:00-11:00 JST Tokyo
+  range + 14-day ATR + running VWAP; Asia index: overnight gap + Bollinger) — held in RAM.
 - **Daily lifecycle:** open → record → **lock** boundaries at the cutoff (09:45 ET /
-  09:00 CET) → serve `SessionState` through the trade window → reset next day.
+  09:00 CET / 11:00 JST for FX) → serve `SessionState` through the trade window → reset
+  next day.
 - **Inputs:** candle builder (live ticks + closed candles), OANDA REST (pre-session
-  history: EU ATR, Asia gap, and range rebuild on boot). **Output:** read-only
+  history: EU/FX ATR, Asia gap, and range rebuild on boot). **Output:** read-only
   `SessionState` to its strategy's `Analyze()`.
 
 Mapping (instrument → controller → strategy) is 1:1 per market, e.g.
-`NAS100_USD → US controller → US_Sweep`, `DE30_EUR → EU controller → EU_Breakout`.
+`NAS100_USD → US controller → US_Sweep`, `DE30_EUR → EU controller → EU_LOVE`,
+`USD_JPY → FX controller → FX_TRLD`.
 
 **Connections (summary):**
 
@@ -326,7 +351,7 @@ Output (out of each controller):
 
 ```text
 Clock + holidays ┄→ ┐
-Candle builder   ┄→ ├─ Session controller (US | EU | Asia) ┄SessionState┄→ Strategy.Analyze()
+Candle builder   ┄→ ├─ Session controller (US | EU | FX | Asia) ┄SessionState┄→ Strategy.Analyze()
 OANDA REST hist  ┄→ ┘
 ```
 
@@ -348,14 +373,17 @@ Strategy engine
   ├─ US Sweep  → RESTING LIMIT orders parked just inside the range boundary
   │             (OANDA fills natively at the extreme; no candle-close wait)
   ├─ EU LOVE   → MARKET order after a 5-min candle CLOSES fully outside the range
-  └─ Asia MR   → (deferred)
+  ├─ FX TRLD   → MARKET order after a 5-min candle CLOSES fully outside Tokyo range
+  │             (London drive window only; see fx-usdjpy-architecture.md)
+  └─ Asia MR   → (deferred; index mean-reversion — not FX TRLD)
 ```
 
 | Region (instruments) | Range window | Range anchor | Execution anchor | Entry |
 | --- | --- | --- | --- | --- |
 | US (`US100`, `SPX500`) | 09:30:00–09:44:59 ET | 5-min (3 candles) | 5-min | Resting limit (fade sweep) |
 | **EU (`DE30`, `FR40`)** | 08:00:00–08:59:59 CET | **1-hour (1 candle)** | **5-min** | **Market on close** |
-| Asia (`JP225`, `AU200`) | 09:00:00–09:59:59 JST | 15-min (4 candles) | 15-min | Deferred |
+| **FX (`USD_JPY`)** | **09:00:00–10:59:59 JST** | **M5/H1 in window** | **5-min** | **Market on close (London window)** |
+| Asia index (`JP225`, `AU200`) | 09:00:00–09:59:59 JST | 15-min (4 candles) | 15-min | Deferred |
 
 The VM's ingestion layer requests each explicit granularity from OANDA's REST candle
 endpoint at session startup and maps them into **separate per-timeframe Go buffers**, so
@@ -534,20 +562,18 @@ not need; even then it would read the shared in-memory tick, not a second subscr
 Two distinct calendars. Neither is a free-flowing event — both resolve to **durable
 state** the VM reads (fail-safe if stale/missing):
 
-- **Economic events** (CPI, NFP, FOMC, ECB) — the news filter. Flow:
-  `Cloud Scheduler → stateless poller → fetch provider → write calendar-state.json (GCS)
-  → VM reads into RAM cache`. Provider is behind a swappable interface; free-tier
-  candidates: **Finnhub** or **Financial Modeling Prep**; alternatives: Trading Economics
-  (paid), Forex Factory XML (unofficial), OANDA Labs (no stability guarantee). Default:
-  Finnhub free tier. Store: GCS object (Firestore is an alternative). The VM caches the
-  object in RAM and re-reads on a timer; a missing/stale `as_of` ⇒ treat event imminent.
+- **Economic events** (CPI, NFP, FOMC, ECB, BOJ, …) — the news filter. Flow:
+  `Cloud Scheduler → poller → Finnhub (7d high-impact US/JP/EU) → [fallback Gemini
+  Live Search] → Telegram review → write calendar-state.json (GCS/file) → VM RAM cache`.
+  Finnhub free tier may **403**; Gemini fallback (`gemini-2.5-flash` + Live Google Search
+  Grounding) is **required**. Telegram is the ops validation channel; recommended policy
+  auto-writes durable state after a successful `sendMessage`, with ops override if wrong.
+  This supersedes the earlier interim **file-only / manual paste** lock — the file remains
+  the durable on-VM store after fetch. Spec: `10-economic-calendar.md`.
 - **Trading holidays / half-days** — for session logic (so "market open" doesn't fire on
   a holiday or during 13:00 ET early closes). Kept as a **checked-in config file**
   (per coding guidelines), validated yearly against exchange calendars (CME / Eurex / LSE).
   Already durable; no external dependency, no failure mode.
-
-Status: mechanism designed; the specific economic-calendar provider is not yet locked in.
-Default assumption is Finnhub free tier behind an interface.
 
 ---
 
@@ -593,8 +619,9 @@ Latency-insensitive; cold starts are harmless here.
 - **BigQuery logger**: consumes trade/tick-metadata events; idempotent upsert by `trade_id`.
 - **Analytics/KPI**: scheduled SQL for Sharpe, profit factor, max drawdown, equity curve.
 - **Telegram notifier**: consumes alert events; sends to Telegram.
-- **Calendar poller**: pulls economic + trading-holiday calendars on a schedule, writes a
-  compact state the VM reads; VM **fails safe** if the state is stale/unknown.
+- **Calendar poller**: Finnhub (7d high-impact US/JP/EU) with Gemini Live Search fallback,
+  Telegram review, then durable `calendar-state.json` write; VM **fails safe** if the
+  state is stale/unknown. Holidays remain checked-in config (not polled).
 
 ### 6.3 Data lake
 
@@ -657,12 +684,14 @@ type MarketEvent struct {
 // NOTE: no daily-trade flag here — concurrency is a risk-module concern (below).
 type SessionState struct {
     InitialHigh, InitialLow float64 // US 09:30–09:45 ET
-    OpeningHigh, OpeningLow float64 // EU 08:00–09:00 CET
-    DailyATR                float64 // EU 14-day
-    VWAP                    float64 // EU running
+    OpeningHigh, OpeningLow float64 // EU 08:00–09:00 CET; FX 09:00–11:00 JST
+    RangeLocked             bool
+    DailyATR                float64 // EU / FX 14-day
+    VWAP                    float64 // EU / FX running session VWAP
+    VolMA12                 float64 // EU / FX trailing M5 volume MA
     RSI14                   float64 // US
     VolMA20                 float64 // US 20-period volume MA
-    GapPct                  float64 // Asia opening gap
+    GapPct                  float64 // Asia index opening gap
 }
 
 // Strategies are pure: window + state in → Signal or nil out.
@@ -734,10 +763,10 @@ for v1). Live vs paper is selected by the OANDA host/credentials, per account.
   reconnect metrics, execution-failure alerts, periodic RAM-vs-OANDA reconciliation, daily
   P&L vs drawdown limits → Telegram + Cloud Monitoring.
 - **Security**: Secret Manager + attached SA (no key files); least-privilege per component.
-- **Validation**: v1 is validated on the OANDA `fxpractice` **paper account** (same code
-  path, paper host). No offline backtest harness in v1; the strategy library and risk
-  module are still kept pure/importable so an offline replay harness can be added later
-  without touching the live path.
+- **Validation**: EU v1 is validated on the OANDA `fxpractice` **paper account** (same
+  code path, paper host) without a required offline harness. **FX TRLD requires** an
+  offline backtest gate plus paper soak before live (`19-fx-validation-backtest.md`).
+  Strategy and risk stay pure/importable so the harness shares production logic.
 
 ---
 
@@ -748,22 +777,26 @@ for v1). Live vs paper is selected by the OANDA host/credentials, per account.
 - **Exits:** broker brackets are the primary exit; the generic management loop
   applies dynamic changes driven by a per-trade `ManagementPolicy`. Strategies
   stay pure and emit no ongoing exit signals.
-- **Concurrency guard:** one concurrent trade per index, enforced in the unified
-  risk module and derived from OANDA open trades (durable across restarts).
-  Pure concurrency for **all** markets — no daily/per-session trade cap.
+- **Concurrency guard:** one concurrent open trade per instrument, enforced in the
+  unified risk module and derived from OANDA open trades (durable across restarts).
 - **EU daily cap dropped (intentional):** the EU strategy's "one execution per
   index per day" rule (`Europe market strategy.md` §5) is **not** implemented.
   Same-day re-entry after a stop-out is allowed. Whipsaw exposure is instead
   bounded by the portfolio-level controls (max daily loss, consecutive-loss
   circuit breaker) in the unified risk module.
-- **v1 = EU only:** first release ships `DE30`/`FR40` on the EU LOVE strategy;
-  US and Asia are staged behind the same interfaces (§1.1, §4.2).
+- **FX daily cap (intentional):** FX TRLD enforces **one accepted entry per Tokyo
+  session day** on `USD_JPY` (no same-day re-entry) — see `18-fx-risk-profile.md`.
+- **v1 = EU shipped; FX next:** first release ships `DE30`/`FR40` on EU LOVE; FX TRLD
+  (`USD_JPY`) is the next lane (specs `15`–`19`). US Sweep and Asia index MR remain
+  staged (§1.1, §4.2).
 - **Per-market accounts:** risk aggregates (−$150 daily lock, concurrency,
   consecutive-loss) are enforced **per account**, not globally.
-- **Entry split:** EU uses market-on-close; US (future) uses resting limit orders (§4.2).
+- **Entry split:** EU and FX use market-on-close; US (future) uses resting limit orders
+  (§4.2).
 - **Control plane:** HMAC-signed command webhook (`FLATTEN`/`PAUSE`/`RESUME`/`RE_ARM`);
   kill switch is manual-re-arm only (§6.4).
-- **Validation:** OANDA `fxpractice` paper account; no offline backtest harness in v1.
+- **Validation:** EU — paper account, no required offline harness. FX — mandatory
+  offline backtest + paper soak before live.
 - **Tick lake deferred:** v1 persists the trade ledger to BigQuery only.
 
 ---

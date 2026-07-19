@@ -21,12 +21,14 @@ type Account struct {
 	baselineEquity float64
 	dailyRealized  float64
 	consecLosses   int
+	// tradedDay maps instrument → session-day key (YYYY-MM-DD) for one-trade/day.
+	tradedDay map[string]string
 }
 
 // NewAccount builds an account in the "state unknown" condition; the first
 // equity refresh (boot) makes it usable.
 func NewAccount(name, oandaID string) *Account {
-	return &Account{name: name, oandaID: oandaID}
+	return &Account{name: name, oandaID: oandaID, tradedDay: map[string]string{}}
 }
 
 // Name implements risk.AccountState.
@@ -102,6 +104,25 @@ func (a *Account) SnapshotBaseline() {
 	a.baselineEquity = a.equity
 	a.dailyRealized = 0
 	a.consecLosses = 0
+	a.tradedDay = map[string]string{}
+}
+
+// MarkTraded records that instrument had an accepted entry on sessionDay
+// (Tokyo YYYY-MM-DD for FX one-trade/day).
+func (a *Account) MarkTraded(instrument, sessionDay string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.tradedDay == nil {
+		a.tradedDay = map[string]string{}
+	}
+	a.tradedDay[instrument] = sessionDay
+}
+
+// TradedOn reports whether instrument was already accepted on sessionDay.
+func (a *Account) TradedOn(instrument, sessionDay string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.tradedDay[instrument] == sessionDay
 }
 
 // BaselineEquity returns the last snapshotted baseline.
@@ -136,7 +157,12 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 		}
 		acct := NewAccount(ac.Name, ac.OANDAID)
 		m.accounts[ac.Name] = acct
-		m.riskCfg[ac.Name] = cfg.Risk.Merged(ac.Risk)
+		base := cfg.Risk
+		if ac.Strategy == "fx_trld" && cfg.FXRisk.Enabled() {
+			fxRisk := cfg.FXRisk.AsRiskConfig()
+			base = base.Merged(&fxRisk)
+		}
+		m.riskCfg[ac.Name] = base.Merged(ac.Risk)
 		m.strategyOf[ac.Name] = ac.Strategy
 		for _, inst := range ac.Instruments {
 			if prev, dup := m.byInstrument[inst]; dup {

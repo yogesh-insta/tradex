@@ -15,9 +15,12 @@ case "${ENVIRONMENT}" in
 esac
 
 echo "==> deploying tradex (${ENVIRONMENT})"
+export PATH="/usr/local/go/bin:${PATH}"
 cd "${APP_DIR}"
 
 echo "==> pulling latest main"
+# Repo may be owned by a different user than the deploy SSH user.
+git config --global --add safe.directory "${APP_DIR}"
 git fetch origin main
 git checkout main
 git reset --hard origin/main

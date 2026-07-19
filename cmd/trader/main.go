@@ -31,6 +31,7 @@ import (
 	"github.com/yogesh-insta/tradex/internal/session"
 	"github.com/yogesh-insta/tradex/internal/strategy"
 	"github.com/yogesh-insta/tradex/internal/strategy/eulove"
+	"github.com/yogesh-insta/tradex/internal/strategy/fxtrld"
 	"github.com/yogesh-insta/tradex/internal/trademgmt"
 	"github.com/yogesh-insta/tradex/pkg/types"
 )
@@ -120,8 +121,9 @@ func run() error {
 		ConfirmTimeout: cfg.Candles.RESTConfirmTimeout.D(),
 	}, client, log)
 
-	// --- EU session controller ---
-	sess, err := session.NewController(session.Config{
+	// --- session controllers (EU + optional FX; never share mutable state) ---
+	sessHub := session.NewHub()
+	euSess, err := session.NewController(session.Config{
 		TZ:               cfg.EUSession.TZ,
 		RangeStart:       cfg.EUSession.RangeStart,
 		RangeEnd:         cfg.EUSession.RangeEnd,
@@ -134,8 +136,38 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := sessHub.Add(euSess); err != nil {
+		return err
+	}
 
-	// --- strategy registry + router (pluggable; v1 registers EU LOVE) ---
+	fxActive := false
+	for _, ac := range cfg.Accounts {
+		if ac.Active && ac.Strategy == fxtrld.Name {
+			fxActive = true
+			break
+		}
+	}
+	var fxSess *session.Controller
+	if fxActive && cfg.FXSession.Enabled() {
+		fxSess, err = session.NewController(session.Config{
+			TZ:               cfg.FXSession.TZ,
+			RangeStart:       cfg.FXSession.RangeStart,
+			RangeEnd:         cfg.FXSession.RangeEnd,
+			TradeWindowStart: cfg.FXSession.TradeWindowStart,
+			ATRPeriodDays:    cfg.FXSession.ATRPeriodDays,
+			VolMACandles:     cfg.FXSession.VolMACandles,
+			Instruments:      cfg.FXSession.Instruments,
+			SkipWeekends:     true,
+		}, client, nil, log)
+		if err != nil {
+			return err
+		}
+		if err := sessHub.Add(fxSess); err != nil {
+			return err
+		}
+	}
+
+	// --- strategy registry + router ---
 	strategy.Register(eulove.Name, func() (strategy.Strategy, error) {
 		return eulove.New(eulove.Config{
 			VolumeSpikeMult:  cfg.Strategies.EULove.VolumeSpikeMult,
@@ -146,16 +178,49 @@ func run() error {
 			EntryWindowEnd:   cfg.Strategies.EULove.EntryWindowEnd,
 			FridayCutoff:     cfg.Mgmt.EUFridayCutoff,
 			DailyCutoff:      cfg.Mgmt.EUDailyCutoff,
-			Location:         sess.Location(),
+			Location:         euSess.Location(),
 		})
 	})
+	if fxActive {
+		ny, err := time.LoadLocation(firstNonEmpty(cfg.Mgmt.FXFridayCutoffTZ, "America/New_York"))
+		if err != nil {
+			return err
+		}
+		fxLoc := euSess.Location()
+		if fxSess != nil {
+			fxLoc = fxSess.Location()
+		}
+		twStart := cfg.Strategies.FXTRLD.TradeWindowStart
+		if twStart == "" {
+			twStart = cfg.FXSession.TradeWindowStart
+		}
+		strategy.Register(fxtrld.Name, func() (strategy.Strategy, error) {
+			return fxtrld.New(fxtrld.Config{
+				VolumeSpikeMult:  cfg.Strategies.FXTRLD.VolumeSpikeMult,
+				SLATRMult:        cfg.Strategies.FXTRLD.SLATRMult,
+				TPATRMult:        cfg.Strategies.FXTRLD.TPATRMult,
+				BreakevenAtR:     cfg.Strategies.FXTRLD.BreakevenAtR,
+				MinATRFrac:       cfg.Strategies.FXTRLD.MinATRFrac,
+				MaxATRFrac:       cfg.Strategies.FXTRLD.MaxATRFrac,
+				MaxSpreadPips:    cfg.Strategies.FXTRLD.MaxSpreadPips,
+				PipSize:          cfg.FXRisk.PipSize,
+				TradeWindowStart: twStart,
+				EntryWindowEnd:   cfg.Strategies.FXTRLD.EntryWindowEnd,
+				FridayCutoff:     firstNonEmpty(cfg.Mgmt.FXFridayCutoff, cfg.FXRisk.FridayHardFlatten),
+				FridayCutoffLoc:  ny,
+				SoftCutoff:       firstNonEmpty(cfg.Mgmt.FXSoftCutoff, cfg.FXSession.SoftCutoff),
+				TrailAfterR:      cfg.Strategies.FXTRLD.TrailAfterR,
+				Location:         fxLoc,
+			})
+		})
+	}
 	router := strategy.NewRouter()
 
 	// --- per-account executors, risk engines, management loops ---
 	executors := map[string]*execution.OANDAExecutor{}
 	engines := map[string]*risk.Engine{}
 	loops := map[string]*trademgmt.Loop{}
-	region := func(string) string { return "EU" } // v1: all instruments are EU
+	instrumentRegion := map[string]string{}
 	for _, ac := range cfg.Accounts {
 		if !ac.Active {
 			continue
@@ -171,37 +236,100 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		newsRegion := "EU"
+		if ac.Strategy == fxtrld.Name {
+			newsRegion = "FX"
+		}
 		for _, inst := range ac.Instruments {
 			if err := router.Assign(inst, strat); err != nil {
 				return err
 			}
+			instrumentRegion[inst] = newsRegion
+		}
+
+		timeToNews := func(region string, now time.Time) time.Duration {
+			if region == "FX" {
+				regions := cfg.FXRisk.CalendarRegions
+				if len(regions) == 0 {
+					regions = []string{"US", "JP"}
+				}
+				return calendar.MinTimeToHighImpact(calCache, regions, now)
+			}
+			return calCache.TimeToHighImpact(region, now)
+		}
+		regionFn := func(inst string) string {
+			if r, ok := instrumentRegion[inst]; ok {
+				return r
+			}
+			return "EU"
 		}
 
 		var loop *trademgmt.Loop
-		eng := risk.NewEngine(pm.RiskConfig(ac.Name), acct, "EU", risk.Deps{
+		eng := risk.NewEngine(pm.RiskConfig(ac.Name), acct, newsRegion, risk.Deps{
 			SystemState: machine.State,
 			ForceLock:   machine.ForceLock,
 			Stale:       consumer.Stale,
-			TimeToNews:  calCache.TimeToHighImpact,
+			TimeToNews:  timeToNews,
 			OpenTrades:  func() []types.OpenTrade { return loop.OpenTrades() },
 			Meta:        exec.Instrument,
 			Price:       snapshot.Mid,
 		})
+		if ac.Strategy == fxtrld.Name {
+			fxLoc := time.UTC
+			if fxSess != nil {
+				fxLoc = fxSess.Location()
+			}
+			prof, err := risk.FXProfileFromConfig(cfg.FXRisk, fxLoc)
+			if err != nil {
+				return err
+			}
+			if prof != nil {
+				pip := prof.PipSize
+				eng.WithFX(*prof, risk.FXDeps{
+					SpreadPips: func(instrument string) (float64, bool) {
+						sp := snapshot.Spread(instrument)
+						if sp <= 0 {
+							return 0, false
+						}
+						return sp / pip, true
+					},
+					TradedToday: acct.TradedOn,
+					MarkTraded:  acct.MarkTraded,
+				})
+			}
+		}
 		engines[ac.Name] = eng
 
 		settle := onVanished(ctx, client, ac.OANDAID, acct, eng, log.With("account", ac.Name), pub, mets)
+		newsBlock := cfg.Mgmt.NewsBlockBefore.D()
+		if ac.Strategy == fxtrld.Name && cfg.FXRisk.NewsBlockBefore > 0 {
+			newsBlock = cfg.FXRisk.NewsBlockBefore.D()
+		}
 		loop = trademgmt.NewLoop(trademgmt.Config{
 			TickInterval:      cfg.Mgmt.TickInterval.D(),
 			ReconcileInterval: cfg.Mgmt.ReconcileInterval.D(),
-			NewsBlockBefore:   cfg.Mgmt.NewsBlockBefore.D(),
+			NewsBlockBefore:   newsBlock,
 		}, trademgmt.Deps{
 			Executor:    exec,
 			Price:       snapshot.Mid,
-			TimeToNews:  calCache.TimeToHighImpact,
-			Region:      region,
+			TimeToNews:  timeToNews,
+			Region:      regionFn,
 			SystemState: machine.State,
 			OnVanished:  settle,
 		}, log.With("account", ac.Name))
+		if ac.Strategy == fxtrld.Name {
+			softTZ, _ := time.LoadLocation(firstNonEmpty(cfg.Mgmt.FXSoftCutoffTZ, "Asia/Tokyo"))
+			friTZ, _ := time.LoadLocation(firstNonEmpty(cfg.Mgmt.FXFridayCutoffTZ, "America/New_York"))
+			loop.WithFX(trademgmt.FXConfig{
+				Enabled:            true,
+				NewsUnderwaterFlat: true,
+				SoftCutoffTZ:       softTZ,
+				SoftCutoff:         firstNonEmpty(cfg.Mgmt.FXSoftCutoff, cfg.FXSession.SoftCutoff),
+				SoftCutoffFlattenR: cfg.FXRisk.SoftCutoffFlattenR,
+				FridayCutoffTZ:     friTZ,
+				FridayCutoff:       firstNonEmpty(cfg.Mgmt.FXFridayCutoff, cfg.FXRisk.FridayHardFlatten),
+			})
+		}
 		loops[ac.Name] = loop
 	}
 
@@ -218,10 +346,10 @@ func run() error {
 	if err := builder.Backfill(ctx); err != nil {
 		return fmt.Errorf("boot: candle backfill: %w", err)
 	}
-	if err := sess.RefreshATR(ctx); err != nil {
+	if err := sessHub.RefreshATR(ctx); err != nil {
 		log.Error("boot: ATR refresh failed; entries blocked until it succeeds", "error", err)
 	}
-	if err := sess.RecoverRange(ctx, time.Now()); err != nil {
+	if err := sessHub.RecoverRange(ctx, time.Now()); err != nil {
 		log.Error("boot: session range recovery failed", "error", err)
 	}
 
@@ -266,7 +394,7 @@ func run() error {
 			case <-ctx.Done():
 				return
 			case ev := <-builder.Events():
-				handleEvent(ctx, ev, sess, router, pm, engines, executors, log, mets)
+				handleEvent(ctx, ev, sessHub, snapshot, router, pm, engines, executors, log, mets)
 			}
 		}
 	}()
@@ -360,11 +488,11 @@ func run() error {
 	})
 	sched.Add(scheduler.Job{
 		Name: "atr_refresh", Interval: 30 * time.Minute,
-		Fn: func(ctx context.Context) error { return sess.RefreshATR(ctx) },
+		Fn: func(ctx context.Context) error { return sessHub.RefreshATR(ctx) },
 	})
 	sched.Add(scheduler.Job{
 		Name: "daily_baseline", Interval: time.Minute,
-		Fn: newDailyBaselineJob(pm, sess, log),
+		Fn: newDailyBaselineJob(pm, euSess, log),
 	})
 	sched.Add(scheduler.Job{
 		Name: "heartbeat", Interval: cfg.Observability.HeartbeatInterval.D(), RunAtStart: true,
@@ -398,7 +526,7 @@ func run() error {
 // handleEvent is the hot-path glue: candle close → session → router → risk →
 // executor. Synchronous and in-process; the only network call is the order.
 func handleEvent(ctx context.Context, ev types.MarketEvent,
-	sess *session.Controller, router *strategy.Router, pm *portfolio.Manager,
+	sess *session.Hub, snap *marketdata.Snapshot, router *strategy.Router, pm *portfolio.Manager,
 	engines map[string]*risk.Engine, executors map[string]*execution.OANDAExecutor,
 	log *slog.Logger, mets *metrics.Memory) {
 
@@ -416,6 +544,8 @@ func handleEvent(ctx context.Context, ev types.MarketEvent,
 	if !ok {
 		return // holiday / controller idle
 	}
+	ev.Price = snap.Mid(ev.Instrument)
+	ev.Spread = snap.Spread(ev.Instrument)
 	sig := router.Dispatch(ev, st)
 	if sig == nil {
 		return
@@ -424,7 +554,8 @@ func handleEvent(ctx context.Context, ev types.MarketEvent,
 	mets.Inc("signals")
 
 	eng := engines[acct.Name()]
-	req, err := eng.Evaluate(*sig, time.Now())
+	now := time.Now()
+	req, err := eng.Evaluate(*sig, now)
 	if err != nil {
 		log.Warn("signal rejected by risk", "instrument", sig.Instrument, "error", err)
 		mets.Inc("risk_rejections")
@@ -436,8 +567,18 @@ func handleEvent(ctx context.Context, ev types.MarketEvent,
 		mets.Inc("order_failures")
 		return
 	}
+	eng.MarkAccepted(*sig, now)
 	mets.Inc("orders_opened")
 	log.Info("order placed", "trade_id", trade.TradeID, "units", trade.Units)
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // onVanished settles realized P&L when a trade disappears from OpenTrades()

@@ -246,7 +246,111 @@ func (c *Config) validateShared() []error {
 			add("mgmt.eu_daily_cutoff: %v", err)
 		}
 	}
+	if c.Mgmt.FXFridayCutoff != "" {
+		if _, err := clockSeconds(c.Mgmt.FXFridayCutoff); err != nil {
+			add("mgmt.fx_friday_cutoff: %v", err)
+		}
+	}
+	if c.Mgmt.FXSoftCutoff != "" {
+		if _, err := clockSeconds(c.Mgmt.FXSoftCutoff); err != nil {
+			add("mgmt.fx_soft_cutoff: %v", err)
+		}
+	}
 
+	errs = append(errs, c.validateFX()...)
+	return errs
+}
+
+func (c *Config) validateFX() []error {
+	var errs []error
+	add := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+
+	fxActive := false
+	for _, a := range c.Accounts {
+		if a.Active && a.Strategy == "fx_trld" {
+			fxActive = true
+			break
+		}
+	}
+	if !fxActive && !c.FXSession.Enabled() {
+		return nil
+	}
+
+	fx := c.FXSession
+	if fx.TZ == "" {
+		add("fx_session.tz must be set when FX lane is enabled")
+	} else if _, err := time.LoadLocation(fx.TZ); err != nil {
+		add("fx_session.tz %q is not a valid IANA timezone", fx.TZ)
+	}
+	rs, errS := clockSeconds(fx.RangeStart)
+	re, errE := clockSeconds(fx.RangeEnd)
+	if errS != nil {
+		add("fx_session.range_start: %v", errS)
+	}
+	if errE != nil {
+		add("fx_session.range_end: %v", errE)
+	}
+	if errS == nil && errE == nil && re <= rs {
+		add("fx_session.range_end must be after range_start")
+	}
+	for _, clk := range []struct{ name, v string }{
+		{"fx_session.trade_window_start", fx.TradeWindowStart},
+		{"fx_session.soft_cutoff", fx.SoftCutoff},
+		{"fx_session.prep_time", fx.PrepTime},
+	} {
+		if clk.v == "" {
+			continue
+		}
+		if _, err := clockSeconds(clk.v); err != nil {
+			add("%s: %v", clk.name, err)
+		}
+	}
+	if fx.ATRPeriodDays <= 0 {
+		add("fx_session.atr_period_days must be > 0")
+	}
+	if fx.VolMACandles <= 0 {
+		add("fx_session.vol_ma_candles must be > 0")
+	}
+
+	s := c.Strategies.FXTRLD
+	if s.VolumeSpikeMult <= 0 {
+		add("strategies.fx_trld.volume_spike_mult must be > 0")
+	}
+	if s.SLATRMult <= 0 || s.TPATRMult <= 0 || s.BreakevenAtR <= 0 {
+		add("strategies.fx_trld multipliers must be > 0")
+	}
+	if s.MinATRFrac <= 0 || s.MaxATRFrac <= 0 || s.MaxATRFrac < s.MinATRFrac {
+		add("strategies.fx_trld min/max_atr_frac invalid")
+	}
+	if s.MaxSpreadPips <= 0 {
+		add("strategies.fx_trld.max_spread_pips must be > 0")
+	}
+	for _, clk := range []struct{ name, v string }{
+		{"strategies.fx_trld.trade_window_start", s.TradeWindowStart},
+		{"strategies.fx_trld.entry_window_end", s.EntryWindowEnd},
+	} {
+		if _, err := clockSeconds(clk.v); err != nil {
+			add("%s: %v", clk.name, err)
+		}
+	}
+
+	fr := c.FXRisk
+	if fr.NewsBlockBefore <= 0 {
+		add("fx_risk.news_block_before must be > 0")
+	}
+	if fr.MaxSpreadPips <= 0 {
+		add("fx_risk.max_spread_pips must be > 0")
+	}
+	if fr.FridayNoEntry != "" {
+		if _, err := clockSeconds(fr.FridayNoEntry); err != nil {
+			add("fx_risk.friday_no_entry: %v", err)
+		}
+	}
+	if fr.FridayHardFlatten != "" {
+		if _, err := clockSeconds(fr.FridayHardFlatten); err != nil {
+			add("fx_risk.friday_hard_flatten: %v", err)
+		}
+	}
 	return errs
 }
 

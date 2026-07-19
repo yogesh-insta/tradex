@@ -75,8 +75,10 @@ type Deps struct {
 type Engine struct {
 	cfg     config.RiskConfig
 	account AccountState
-	region  string // news region for this account's instruments ("EU")
+	region  string // news region for this account's instruments ("EU" or "FX")
 	deps    Deps
+	fx      *FXProfile
+	fxDeps  FXDeps
 }
 
 // NewEngine builds a per-account engine with the merged risk config.
@@ -115,6 +117,10 @@ func (e *Engine) Evaluate(sig types.Signal, now time.Time) (types.OrderRequest, 
 		if t.Instrument == sig.Instrument {
 			return zero, &Rejection{Reason: ReasonAlreadyOpen, Detail: t.TradeID}
 		}
+	}
+	// 5b. FX: one trade / Tokyo session day (before correlation — single-instrument lane).
+	if err := e.evaluateFXGates(sig, now); err != nil {
+		return zero, err
 	}
 	// 6. Correlation guard.
 	if inst := e.correlatedOpen(sig.Instrument, open); inst != "" {

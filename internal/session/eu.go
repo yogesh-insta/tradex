@@ -22,16 +22,18 @@ type RESTSource interface {
 	Candles(ctx context.Context, instrument, granularity string, count int, from, to time.Time) (oanda.CandlesResponse, error)
 }
 
-// Config mirrors the eu_session config keys.
+// Config mirrors the eu_session / fx_session config keys.
 type Config struct {
 	TZ               string
-	RangeStart       string // "08:00:00"
-	RangeEnd         string // "09:00:00"
-	TradeWindowStart string // "09:05:00"
+	RangeStart       string // "08:00:00" / FX "09:00:00"
+	RangeEnd         string // "09:00:00" / FX "11:00:00"
+	TradeWindowStart string // "09:05:00" / FX "16:00:00"
 	ATRPeriodDays    int
 	VolMACandles     int
 	Instruments      []string
 	Markets          map[string]string // instrument -> holiday market code (XETR/XPAR)
+	// SkipWeekends closes Sat/Sun in the controller's TZ (FX Tokyo calendar).
+	SkipWeekends bool
 }
 
 type instrumentState struct {
@@ -80,13 +82,9 @@ func NewController(cfg Config, rest RESTSource, holidays *calendar.Holidays, log
 // Location returns the session's IANA location (Europe/Berlin).
 func (c *Controller) Location() *time.Location { return c.loc }
 
-// IsTradingDay applies the holiday calendar for the instrument's market.
+// IsTradingDay applies weekend skip + holiday calendar for the instrument.
 func (c *Controller) IsTradingDay(instrument string, now time.Time) bool {
-	if c.holidays == nil {
-		return true
-	}
-	market := c.cfg.Markets[instrument]
-	return c.holidays.IsTradingDay(now, market)
+	return c.isTradingDayLocked(instrument, now)
 }
 
 // clockAt resolves a config wall-clock on now's local day.
@@ -286,6 +284,12 @@ func (c *Controller) resetIfNewDay(st *instrumentState, now time.Time) {
 
 // isTradingDayLocked assumes the caller holds a lock (or needs no lock).
 func (c *Controller) isTradingDayLocked(instrument string, now time.Time) bool {
+	if c.cfg.SkipWeekends {
+		wd := now.In(c.loc).Weekday()
+		if wd == time.Saturday || wd == time.Sunday {
+			return false
+		}
+	}
 	if c.holidays == nil {
 		return true
 	}

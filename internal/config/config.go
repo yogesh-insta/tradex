@@ -68,8 +68,10 @@ type Config struct {
 	Stream        StreamConfig        `yaml:"stream"`
 	Candles       CandlesConfig       `yaml:"candles"`
 	EUSession     EUSessionConfig     `yaml:"eu_session"`
+	FXSession     FXSessionConfig     `yaml:"fx_session"`
 	Strategies    StrategiesConfig    `yaml:"strategies"`
 	Risk          RiskConfig          `yaml:"risk"`
+	FXRisk        FXRiskConfig        `yaml:"fx_risk"`
 	Executor      ExecutorConfig      `yaml:"executor"`
 	Mgmt          MgmtConfig          `yaml:"mgmt"`
 	ControlPlane  ControlPlaneConfig  `yaml:"control_plane"`
@@ -210,6 +212,7 @@ type EUSessionConfig struct {
 // StrategiesConfig holds per-strategy tunables, keyed by registry name.
 type StrategiesConfig struct {
 	EULove EULoveConfig `yaml:"eu_love"`
+	FXTRLD FXTRLDConfig `yaml:"fx_trld"`
 }
 
 // EULoveConfig — 05-strategy-eu-love.md.
@@ -219,6 +222,77 @@ type EULoveConfig struct {
 	TPATRMult       float64 `yaml:"tp_atr_mult"`
 	BreakevenAtR    float64 `yaml:"breakeven_at_r"`
 	EntryWindowEnd  string  `yaml:"entry_window_end"` // Europe/Berlin
+}
+
+// FXSessionConfig — 16-fx-session-controller.md (Asia/Tokyo clocks).
+type FXSessionConfig struct {
+	TZ               string   `yaml:"tz"`
+	RangeStart       string   `yaml:"range_start"`
+	RangeEnd         string   `yaml:"range_end"`
+	TradeWindowStart string   `yaml:"trade_window_start"`
+	SoftCutoff       string   `yaml:"soft_cutoff"`
+	PrepTime         string   `yaml:"prep_time"`
+	ATRPeriodDays    int      `yaml:"atr_period_days"`
+	VolMACandles     int      `yaml:"vol_ma_candles"`
+	Instruments      []string `yaml:"instruments"`
+}
+
+// Enabled reports whether an FX session lane is configured.
+func (c FXSessionConfig) Enabled() bool { return len(c.Instruments) > 0 && c.TZ != "" }
+
+// FXTRLDConfig — 17-strategy-fx-trld.md.
+type FXTRLDConfig struct {
+	VolumeSpikeMult  float64 `yaml:"volume_spike_mult"`
+	SLATRMult        float64 `yaml:"sl_atr_mult"`
+	TPATRMult        float64 `yaml:"tp_atr_mult"`
+	BreakevenAtR     float64 `yaml:"breakeven_at_r"`
+	MinATRFrac       float64 `yaml:"min_atr_frac"`
+	MaxATRFrac       float64 `yaml:"max_atr_frac"`
+	MaxSpreadPips    float64 `yaml:"max_spread_pips"`
+	TradeWindowStart string  `yaml:"trade_window_start"`
+	EntryWindowEnd   string  `yaml:"entry_window_end"`
+	TrailAfterR      float64 `yaml:"trail_after_r"` // 0 = off
+}
+
+// FXRiskConfig — 18-fx-risk-profile.md (FX-only gates on top of RiskConfig).
+type FXRiskConfig struct {
+	AccountID            string   `yaml:"account_id"` // optional; accounts[].oanda_account_id is authoritative
+	RiskPerTrade         float64  `yaml:"risk_per_trade"`
+	DailyLossLimit       float64  `yaml:"daily_loss_limit"`
+	ConsecutiveLossHalt  int      `yaml:"consecutive_loss_halt"`
+	MaxConcurrent        int      `yaml:"max_concurrent"`
+	MaxMarginFrac        float64  `yaml:"max_margin_frac"`
+	MaxLeverage          float64  `yaml:"max_leverage"`
+	NewsBlockBefore      Duration `yaml:"news_block_before"`
+	MaxSpreadPips        float64  `yaml:"max_spread_pips"`
+	OneTradePerDay       *bool    `yaml:"one_trade_per_day"` // nil = true when FX enabled
+	ReopenQuietMinutes   int      `yaml:"reopen_quiet_minutes"`
+	FridayNoEntry        string   `yaml:"friday_no_entry"`    // America/New_York
+	FridayHardFlatten    string   `yaml:"friday_hard_flatten"` // America/New_York
+	SoftCutoffFlattenR   float64  `yaml:"soft_cutoff_flatten_r"`
+	CalendarRegions      []string `yaml:"calendar_regions"`
+	RequireSpread        *bool    `yaml:"require_spread"` // nil = true
+	FridayNoEntryTZ      string   `yaml:"friday_no_entry_tz"`
+	FridayHardFlattenTZ  string   `yaml:"friday_hard_flatten_tz"`
+	PipSize              float64  `yaml:"pip_size"` // USD_JPY default 0.01
+}
+
+// Enabled reports whether FX risk profile keys are present.
+func (c FXRiskConfig) Enabled() bool {
+	return c.MaxSpreadPips > 0 || c.NewsBlockBefore > 0 || len(c.CalendarRegions) > 0
+}
+
+// AsRiskConfig maps the shared numeric gates onto RiskConfig for portfolio merge.
+func (c FXRiskConfig) AsRiskConfig() RiskConfig {
+	return RiskConfig{
+		RiskPerTrade:        c.RiskPerTrade,
+		DailyLossLimit:      c.DailyLossLimit,
+		ConsecutiveLossHalt: c.ConsecutiveLossHalt,
+		MaxConcurrent:       c.MaxConcurrent,
+		MaxMarginFrac:       c.MaxMarginFrac,
+		MaxLeverage:         c.MaxLeverage,
+		NewsBlockBefore:     c.NewsBlockBefore,
+	}
 }
 
 // RiskConfig — 06-risk-management.md. Also used for per-account overrides.
@@ -275,13 +349,17 @@ type ExecutorConfig struct {
 	RetryBackoffBase Duration `yaml:"retry_backoff_base"`
 }
 
-// MgmtConfig — 08-trade-management-loop.md.
+// MgmtConfig — 08-trade-management-loop.md (+ FX amendments from 18).
 type MgmtConfig struct {
 	TickInterval      Duration `yaml:"tick_interval"`
 	ReconcileInterval Duration `yaml:"reconcile_interval"`
 	NewsBlockBefore   Duration `yaml:"news_block_before"`
 	EUFridayCutoff    string   `yaml:"eu_friday_cutoff"` // Europe/Berlin
 	EUDailyCutoff     string   `yaml:"eu_daily_cutoff"`  // empty = none (v1)
+	FXFridayCutoffTZ  string   `yaml:"fx_friday_cutoff_tz"`
+	FXFridayCutoff    string   `yaml:"fx_friday_cutoff"`
+	FXSoftCutoffTZ    string   `yaml:"fx_soft_cutoff_tz"`
+	FXSoftCutoff      string   `yaml:"fx_soft_cutoff"`
 }
 
 // ControlPlaneConfig — 09-control-plane.md.
@@ -306,15 +384,22 @@ type CalendarConfig struct {
 	Holidays HolidaysConfig         `yaml:"holidays"`
 }
 
-// EconomicCalendarConfig configures the economic-events read path.
+// EconomicCalendarConfig configures the economic-events read path and poller.
 type EconomicCalendarConfig struct {
-	Provider       string   `yaml:"provider"` // "file" (v1) | "gcs" (stub)
-	StateFile      string   `yaml:"state_file"`
-	GCSObject      string   `yaml:"gcs_object"`
-	VMRefresh      Duration `yaml:"vm_refresh"`
-	StalenessMax   Duration `yaml:"staleness_max"`
-	HighImpactOnly bool     `yaml:"high_impact_only"`
-	Regions        []string `yaml:"regions"`
+	Provider              string    `yaml:"provider"`          // VM read: "file" | "gcs"; poller primary is always Finnhub
+	FallbackProvider      string    `yaml:"fallback_provider"` // "gemini"
+	GeminiModel           string    `yaml:"gemini_model"`
+	PollInterval          Duration  `yaml:"poll_interval"`
+	LookaheadDays         int       `yaml:"lookahead_days"`
+	StateFile             string    `yaml:"state_file"` // alias for local_file (VM read)
+	LocalFile             string    `yaml:"local_file"` // durable write path for poller
+	GCSObject             string    `yaml:"gcs_object"`
+	VMRefresh             Duration  `yaml:"vm_refresh"`
+	StalenessMax          Duration  `yaml:"staleness_max"`
+	HighImpactOnly        bool      `yaml:"high_impact_only"`
+	Regions               []string  `yaml:"regions"`
+	TelegramReview        *bool     `yaml:"telegram_review"`
+	AutoWriteOnTelegramOK *bool     `yaml:"auto_write_on_telegram_ok"`
 }
 
 // HolidaysConfig points at the checked-in trading-holiday file.

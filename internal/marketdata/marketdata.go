@@ -47,6 +47,15 @@ func (s *Snapshot) Mid(instrument string) float64 {
 	return t.Mid
 }
 
+// Spread returns the latest ask-bid, or 0 if unknown.
+func (s *Snapshot) Spread(instrument string) float64 {
+	t, ok := s.Get(instrument)
+	if !ok {
+		return 0
+	}
+	return t.Spread
+}
+
 // Consumer adapts stream messages to ticks and tracks staleness.
 type Consumer struct {
 	snapshot  *Snapshot

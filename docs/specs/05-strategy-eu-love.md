@@ -89,4 +89,4 @@ eu_love:
 ## Out of scope
 
 - Sizing, margin, correlation (risk). Order placement (executor). Exits (trade-mgmt).
-- US resting-limit and Asia strategies (future — kept behind the same `Strategy` iface).
+- US resting-limit, FX TRLD, and Asia index strategies (separate specs; same `Strategy` iface).

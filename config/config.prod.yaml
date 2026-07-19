@@ -22,20 +22,19 @@ accounts:
     # risk:                       # optional per-account overrides
     #   daily_loss_limit: 150
 
+  # FX TRLD lane (USD/JPY) — inactive on prod until deliberately enabled.
+  - name: "fx-usdjpy"
+    oanda_account_id: "${OANDA_ACCOUNT_ID_FX}"
+    instruments: ["USD_JPY"]
+    strategy: "fx_trld"
+    active: false
+
   # --- staged examples (inactive) showing the multi-account model ---
   # - name: "us-indices"
   #   oanda_account_id: "${OANDA_ACCOUNT_ID_US}"
   #   instruments: ["NAS100_USD", "SPX500_USD"]
   #   strategy: "us_sweep"        # future: resting-limit sweep strategy
   #   active: false
-  # - name: "fx-majors"
-  #   oanda_account_id: "${OANDA_ACCOUNT_ID_FX}"
-  #   instruments: ["EUR_USD", "GBP_USD"]
-  #   strategy: "fx_momentum"     # future
-  #   active: false
-  #   risk:
-  #     risk_per_trade: 0.005
-  #     daily_loss_limit: 100
 
 stream:            # 02-market-data-stream.md (instruments derived from accounts)
   heartbeat_timeout: 15s
@@ -62,6 +61,17 @@ eu_session:        # 04-eu-session-controller.md (times = Europe/Berlin wall clo
   vol_ma_candles: 12
   instruments: ["DE30_EUR", "FR40_EUR"]
 
+fx_session:        # 16-fx-session-controller.md (Asia/Tokyo)
+  tz: "Asia/Tokyo"
+  range_start: "09:00:00"
+  range_end: "11:00:00"
+  trade_window_start: "16:00:00"
+  soft_cutoff: "21:00:00"
+  prep_time: "07:30:00"
+  atr_period_days: 14
+  vol_ma_candles: 12
+  instruments: ["USD_JPY"]
+
 strategies:
   eu_love:         # 05-strategy-eu-love.md
     volume_spike_mult: 1.0
@@ -69,6 +79,34 @@ strategies:
     tp_atr_mult: 1.5
     breakeven_at_r: 1.0
     entry_window_end: "11:00:00"
+  fx_trld:         # 17-strategy-fx-trld.md
+    volume_spike_mult: 1.0
+    sl_atr_mult: 0.5
+    tp_atr_mult: 1.5
+    breakeven_at_r: 1.0
+    min_atr_frac: 0.15
+    max_atr_frac: 1.25
+    max_spread_pips: 1.5
+    trade_window_start: "16:00:00"
+    entry_window_end: "19:00:00"
+    trail_after_r: 0
+
+fx_risk:           # 18-fx-risk-profile.md
+  risk_per_trade: 0.01
+  daily_loss_limit: 150
+  consecutive_loss_halt: 3
+  max_concurrent: 1
+  max_margin_frac: 0.10
+  max_leverage: 5.0
+  news_block_before: 60m
+  max_spread_pips: 1.5
+  one_trade_per_day: true
+  reopen_quiet_minutes: 30
+  friday_no_entry: "12:00:00"
+  friday_hard_flatten: "16:00:00"
+  soft_cutoff_flatten_r: 0.5
+  calendar_regions: ["US", "JP"]
+  pip_size: 0.01
 
 risk:              # 06-risk-management.md (global defaults; overridable per account)
   risk_per_trade: 0.01

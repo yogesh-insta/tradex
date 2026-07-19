@@ -47,6 +47,7 @@ type Loop struct {
 	cfg  Config
 	deps Deps
 	log  *slog.Logger
+	fx   FXConfig
 
 	mu            sync.Mutex
 	trades        []types.OpenTrade // last reconciled view
@@ -115,9 +116,14 @@ func (l *Loop) manage(ctx context.Context, t *types.OpenTrade, now time.Time) {
 		return
 	}
 
+	// 1b. FX extras (Friday NY flatten, soft-cutoff weak flatten, news underwater).
+	if l.manageFXExtras(ctx, t, now) {
+		return
+	}
+
 	// 2. News flatten: stops → breakeven ahead of high-impact events
-	// (fail-safe: unknown calendar means imminent).
-	if l.deps.TimeToNews(l.deps.Region(t.Instrument), now) <= l.cfg.NewsBlockBefore {
+	// (fail-safe: unknown calendar means imminent). EU path; FX news handled above.
+	if !l.fx.NewsUnderwaterFlat && l.deps.TimeToNews(l.deps.Region(t.Instrument), now) <= l.cfg.NewsBlockBefore {
 		l.moveStopToEntry(ctx, t, "news")
 		return
 	}

@@ -51,18 +51,19 @@ type MarketEvent struct {
 }
 
 // SessionState — per-day computed context, RAM only, read-only to strategies.
-// Only EU fields are populated in v1; others reserved for future markets.
+// EU and FX populate OpeningHigh/Low + ATR + VWAP + VolMA12 on their own clocks;
+// US / Asia-index fields remain reserved until those lanes ship.
 type SessionState struct {
     Instrument string
 
-    // EU LOVE
-    OpeningHigh, OpeningLow float64   // 08:00–09:00 CET range (locked at 09:00)
+    // EU LOVE (08:00–09:00 Europe/Berlin) and FX TRLD (09:00–11:00 Asia/Tokyo)
+    OpeningHigh, OpeningLow float64   // session range (locked at range_end)
     RangeLocked             bool      // true once the range window has closed
     DailyATR                float64   // 14-day ATR (daily candles), computed pre-session
     VWAP                    float64   // running session VWAP
     VolMA12                 float64   // avg volume of preceding 12 M5 candles
 
-    // Reserved (US / Asia)
+    // Reserved (US / Asia index)
     InitialHigh, InitialLow float64
     RSI14                   float64
     GapPct                  float64
@@ -80,9 +81,9 @@ type ManagementPolicy struct {
 // Signal — strategy output: price intent + policy. NOT sized. nil = no setup.
 type Signal struct {
     Instrument string
-    Strategy   string    // "EU_LOVE"
+    Strategy   string    // "EU_LOVE" | "FX_TRLD" (| "US_SWEEP" future)
     Direction  string    // "LONG" | "SHORT"
-    OrderType  string    // "MARKET" (EU) | "LIMIT" (US, future)
+    OrderType  string    // "MARKET" (EU, FX) | "LIMIT" (US, future)
     EntryPrice float64   // for LIMIT; reference for MARKET
     StopLoss   float64
     TakeProfit float64
@@ -132,7 +133,8 @@ const (
 ## Rules
 
 - `ClientOrderID` format: `{strategy}-{instrument}-{yyyymmdd}-{hhmm}` (e.g.
-  `eu_love-DE30_EUR-20260717-0905`), unique per intended entry so retries dedupe.
+  `eu_love-DE30_EUR-20260717-0905`, `fx_trld-USD_JPY-20260720-1605`), unique per
+  intended entry so retries dedupe.
 - `RiskDistance` is captured **at entry** from the original SL and never recomputed, so
   breakeven/R math is stable even after the SL is moved.
 - Monetary values use `float64` in memory but are **formatted to the instrument's price

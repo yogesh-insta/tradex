@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-07-19T02:00:00Z",
+  "as_of": "2026-07-19T08:09:00Z",
   "events": [
     {
       "region": "EU",
@@ -12,6 +12,12 @@
       "title": "Eurozone CPI",
       "impact": "high",
       "time": "2026-07-22T09:00:00Z"
+    },
+    {
+      "region": "JP",
+      "title": "National Core CPI",
+      "impact": "high",
+      "time": "2026-07-23T23:30:00Z"
     }
   ]
 }

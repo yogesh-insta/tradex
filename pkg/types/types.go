@@ -63,6 +63,7 @@ type MarketEvent struct {
 	Last       Candle    // the candle that just closed
 	Window     []Candle  // sliding window for this timeframe, newest last (<=50)
 	Price      float64   // latest mid from the snapshot
+	Spread     float64   // latest ask-bid from the snapshot (0 = unknown)
 }
 
 // SessionState is per-day computed context, RAM only, read-only to strategies.

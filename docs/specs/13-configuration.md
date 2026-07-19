@@ -56,7 +56,58 @@ eu_love:           # 05-strategy-eu-love.md
   breakeven_at_r: 1.0
   entry_window_end: "11:00:00"
 
-risk:              # 06-risk-management.md
+# FX lane (15–19) — enabled when FX account + USD_JPY are configured
+fx_session:        # 16-fx-session-controller.md
+  tz: "Asia/Tokyo"
+  range_start: "09:00:00"
+  range_end: "11:00:00"
+  trade_window_start: "16:00:00"
+  soft_cutoff: "21:00:00"
+  prep_time: "07:30:00"
+  atr_period_days: 14
+  vol_ma_candles: 12
+  instruments: ["USD_JPY"]
+
+fx_trld:           # 17-strategy-fx-trld.md
+  volume_spike_mult: 1.0
+  sl_atr_mult: 0.5
+  tp_atr_mult: 1.5
+  breakeven_at_r: 1.0
+  min_atr_frac: 0.15
+  max_atr_frac: 1.25
+  max_spread_pips: 1.5
+  trade_window_start: "16:00:00"
+  entry_window_end: "19:00:00"
+  trail_after_r: 0
+
+fx_risk:           # 18-fx-risk-profile.md
+  account_id: "${OANDA_FX_ACCOUNT_ID}"
+  risk_per_trade: 0.01
+  daily_loss_limit: 150
+  consecutive_loss_halt: 3
+  max_concurrent: 1
+  max_margin_frac: 0.10
+  max_leverage: 5.0
+  news_block_before: 60m
+  max_spread_pips: 1.5
+  one_trade_per_day: true
+  reopen_quiet_minutes: 30
+  friday_no_entry: "12:00:00"      # America/New_York
+  friday_hard_flatten: "16:00:00"  # America/New_York
+  soft_cutoff_flatten_r: 0.5
+  calendar_regions: ["US", "JP"]
+
+fx_backtest:       # 19-fx-validation-backtest.md (harness; not required by trader boot)
+  spread_pips: 1.0
+  slippage_pips: 0.2
+  pip_size: 0.01
+  starting_equity: 5000
+  min_oos_trades: 80
+  max_oos_dd_frac: 0.15
+  min_profit_factor: 1.1
+  paper_min_weeks: 4
+
+risk:              # 06-risk-management.md (EU account profile)
   risk_per_trade: 0.01
   daily_loss_limit: 150
   consecutive_loss_halt: 3
@@ -67,7 +118,8 @@ risk:              # 06-risk-management.md
   correlation_groups: [["DE30_EUR","FR40_EUR"]]
 
 executor:          # 07-order-executor.md
-  account_id: "${OANDA_ACCOUNT_ID}"    # from Secret Manager
+  account_id: "${OANDA_ACCOUNT_ID}"    # EU; from Secret Manager
+  # FX orders use fx_risk.account_id; multi-account binding is per OrderRequest.Account
   host: "api-fxpractice.oanda.com"
   time_in_force: "FOK"
   request_timeout: 5s
@@ -80,6 +132,10 @@ mgmt:              # 08-trade-management-loop.md
   news_block_before: 30m
   eu_friday_cutoff: "17:30:00"
   eu_daily_cutoff: ""
+  fx_friday_cutoff_tz: "America/New_York"
+  fx_friday_cutoff: "16:00:00"
+  fx_soft_cutoff_tz: "Asia/Tokyo"
+  fx_soft_cutoff: "21:00:00"
 
 control_plane:     # 09-control-plane.md
   listen: ":8443"
@@ -88,13 +144,19 @@ control_plane:     # 09-control-plane.md
 
 calendar:          # 10-economic-calendar.md
   economic:
-    provider: "finnhub"
+    provider: "finnhub"              # primary; Finnhub free may 403 → fallback required
+    fallback_provider: "gemini"      # Live Search via google.golang.org/genai
+    gemini_model: "gemini-2.5-flash"
     poll_interval: 20m
+    lookahead_days: 7
     gcs_object: "gs://tradex-dev-state/calendar-state.json"
+    local_file: "data/calendar-state.json"  # durable on-VM / ops override
     vm_refresh: 5m
     staleness_max: 90m
     high_impact_only: true
-    regions: ["EU"]
+    regions: ["EU", "US", "JP"]
+    telegram_review: true
+    auto_write_on_telegram_ok: true
   holidays: { file: "config/holidays.yaml", markets: ["XETR","XPAR"] }
 
 persistence:       # 11-trade-ledger-persistence.md
@@ -130,9 +192,11 @@ dashboard:         # 14-dashboard.md (Cloud Run; not loaded by the trader binary
 | --- | --- |
 | `oanda-token` | executor, market-data, candle-builder, dashboard (read-only) |
 | `oanda-account-id` (EU) | executor, risk, dashboard (read-only) |
+| `oanda-fx-account-id` (FX) | executor, FX risk, dashboard when FX lane enabled |
 | `control-hmac` | control-plane |
-| `telegram-token`, `telegram-chat` | observability/notifier |
-| `finnhub-key` (or provider key) | calendar poller |
+| `telegram-token`, `telegram-chat` | observability/notifier **and** calendar poller review (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) |
+| `finnhub-key` | calendar poller primary (`FINNHUB_API_KEY`) |
+| `gemini-api-key` | calendar poller Gemini fallback (`GEMINI_API_KEY`) |
 | `dashboard-token` | dashboard auth (bearer mode) |
 
 ## Validation (at boot)
