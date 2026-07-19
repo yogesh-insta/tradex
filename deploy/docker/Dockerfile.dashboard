@@ -13,8 +13,9 @@ FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 COPY --from=build /out/dashboard /app/dashboard
 COPY config/ /app/config/
+COPY data/calendar-state.json data/trade-ledger.json /app/data/
 
 EXPOSE 8080
 ENV PORT=8080
 ENTRYPOINT ["/app/dashboard"]
-CMD ["--config", "config/config.demo.yaml"]
+CMD ["--config", "config/config.dashboard.cloudrun.yaml"]
