@@ -5,68 +5,120 @@ const uiHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>Tradex Ops</title>
 <style>
   :root {
-    --bg: #0f1419; --panel: #1a2332; --border: #2d3a4d;
+    --bg: #0f1419; --panel: #1a2332; --panel2: #152033; --border: #2d3a4d;
     --text: #e7ecf3; --muted: #8b9bb4; --accent: #3d9cf0;
     --green: #3ecf8e; --amber: #e6b84d; --red: #ef6b6b;
     --mono: "IBM Plex Mono", "SF Mono", ui-monospace, monospace;
     --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --pad: 14px;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 16px 20px 40px;
-    background: radial-gradient(1200px 600px at 10% -10%, #1a2a40 0%, var(--bg) 55%);
+    margin: 0; padding: 12px var(--pad) 48px;
+    background:
+      radial-gradient(900px 420px at 8% -8%, #1a2a40 0%, transparent 55%),
+      radial-gradient(700px 380px at 100% 0%, #182438 0%, var(--bg) 50%);
     color: var(--text); font: 14px/1.45 var(--sans);
+    -webkit-text-size-adjust: 100%;
   }
   header {
-    display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px 24px;
-    margin-bottom: 18px; border-bottom: 1px solid var(--border); padding-bottom: 12px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+    margin-bottom: 14px; border-bottom: 1px solid var(--border); padding-bottom: 12px;
   }
-  h1 { margin: 0; font-size: 22px; letter-spacing: 0.02em; }
+  h1 { margin: 0; font-size: 1.35rem; letter-spacing: 0.02em; line-height: 1.2; }
   h1 span { color: var(--accent); font-weight: 600; }
-  .meta { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  .meta { color: var(--muted); font-family: var(--mono); font-size: 11px; line-height: 1.4; }
+  .header-meta { flex: 1 1 12rem; min-width: 0; word-break: break-word; }
+  .health-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--muted);
+    box-shadow: 0 0 0 3px #243044; flex: 0 0 auto;
+  }
+  .health-dot.green { background: var(--green); box-shadow: 0 0 0 3px #163828; }
+  .health-dot.amber { background: var(--amber); box-shadow: 0 0 0 3px #3a3014; }
+  .health-dot.red { background: var(--red); box-shadow: 0 0 0 3px #3a1818; }
   .banner {
     background: #3a2a14; border: 1px solid var(--amber); color: #f3d9a0;
-    padding: 8px 12px; margin-bottom: 14px; border-radius: 4px; display: none;
+    padding: 10px 12px; margin-bottom: 14px; border-radius: 6px; display: none;
+    font-size: 13px; line-height: 1.4;
   }
   .banner.show { display: block; }
-  .grid {
-    display: grid; gap: 14px;
-    grid-template-columns: 1fr;
-  }
-  @media (min-width: 1100px) {
-    .grid { grid-template-columns: 1.2fr 1fr; }
+  .grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  @media (min-width: 960px) {
+    body { padding: 16px 20px 40px; }
+    .grid { grid-template-columns: 1.15fr 1fr; gap: 14px; }
     .full { grid-column: 1 / -1; }
   }
   section {
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 6px; padding: 12px 14px;
+    background: linear-gradient(180deg, var(--panel) 0%, var(--panel2) 100%);
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px 12px 10px;
+    min-width: 0;
   }
   section h2 {
-    margin: 0 0 10px; font-size: 13px; text-transform: uppercase;
+    margin: 0 0 10px; font-size: 12px; text-transform: uppercase;
     letter-spacing: 0.08em; color: var(--muted); font-weight: 600;
   }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; padding: 0 4px; }
   table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
   th { color: var(--muted); font-weight: 500; }
-  .num { text-align: right; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
   .pos { color: var(--green); }
   .neg { color: var(--red); }
   .pill {
-    display: inline-block; min-width: 64px; text-align: center;
-    padding: 2px 8px; border-radius: 3px; font-size: 11px; font-family: var(--mono);
+    display: inline-block; min-width: 56px; text-align: center;
+    padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: var(--mono);
   }
   .pill.green { background: #163828; color: var(--green); }
   .pill.amber { background: #3a3014; color: var(--amber); }
   .pill.red { background: #3a1818; color: var(--red); }
   .pill.unknown { background: #243044; color: var(--muted); }
   .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
-  .summary { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-bottom: 10px; }
-  .summary div { font-family: var(--mono); font-size: 12px; }
-  .summary b { display: block; color: var(--muted); font-weight: 500; font-size: 11px; margin-bottom: 2px; }
+  .account-grid {
+    display: grid; gap: 10px;
+    grid-template-columns: 1fr;
+    margin-bottom: 12px;
+  }
+  @media (min-width: 640px) {
+    .account-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .card {
+    background: rgba(15, 20, 25, 0.45); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px;
+  }
+  .card .title {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    margin-bottom: 8px; font-family: var(--mono); font-size: 13px; font-weight: 600;
+  }
+  .kv {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px;
+  }
+  .kv div { font-family: var(--mono); font-size: 12px; min-width: 0; }
+  .kv b {
+    display: block; color: var(--muted); font-weight: 500; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px;
+  }
+  .cards { display: grid; gap: 8px; }
+  .row-card .top {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    margin-bottom: 6px; font-family: var(--mono); font-size: 12px;
+  }
+  .row-card .top .inst { font-weight: 600; }
+  .row-card .top .acct { color: var(--muted); }
+  .row-card .stats {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px;
+    font-family: var(--mono); font-size: 11px;
+  }
+  .row-card .stats span { color: var(--muted); }
+  .desktop-only { display: none; }
+  .mobile-only { display: block; }
+  @media (min-width: 760px) {
+    .desktop-only { display: block; }
+    .mobile-only { display: none; }
+  }
   .bars { display: flex; align-items: flex-end; gap: 3px; height: 48px; margin: 8px 0 4px; }
   .bars i {
     flex: 1; min-width: 4px; background: var(--accent); opacity: 0.85;
@@ -74,12 +126,14 @@ const uiHTML = `<!DOCTYPE html>
   }
   .bars i.neg { background: var(--red); }
   .err { color: var(--red); font-size: 12px; margin-top: 6px; }
+  .footnote { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-top: 6px; }
 </style>
 </head>
 <body>
 <header>
+  <div class="health-dot" id="health-dot" title="overall health"></div>
   <h1><span>Tradex</span> Ops</h1>
-  <div class="meta" id="meta">loading…</div>
+  <div class="meta header-meta" id="meta">loading…</div>
 </header>
 <div class="banner" id="banner"></div>
 <div class="grid">
@@ -126,6 +180,19 @@ function esc(s) {
 function pill(level, text) {
   return '<span class="pill ' + esc(level || "unknown") + '">' + esc(text) + '</span>';
 }
+function worstLevel(levels) {
+  const rank = { red: 3, amber: 2, unknown: 1, green: 0 };
+  let worst = "unknown", score = -1;
+  for (const l of levels) {
+    const s = rank[l] ?? 1;
+    if (s > score) { score = s; worst = l; }
+  }
+  return worst;
+}
+function setDot(level) {
+  const el = document.getElementById("health-dot");
+  el.className = "health-dot " + (level || "unknown");
+}
 async function refresh() {
   const cfg = await api("/api/ui-config");
   const accounts = cfg.accounts || [];
@@ -147,27 +214,44 @@ async function refresh() {
   if (banners.length) { b.textContent = banners.join(" | "); b.classList.add("show"); }
   else { b.classList.remove("show"); b.textContent = ""; }
 
+  setDot(worstLevel((ov.health || []).map(e => e.level)));
+
   // Accounts
-  let sumHtml = "";
+  let sumHtml = '<div class="account-grid">';
   for (const a of (ov.accounts || [])) {
-    sumHtml += '<div class="summary">' +
-      '<div><b>Account</b>' + esc(a.name) + '</div>' +
+    sumHtml += '<div class="card">' +
+      '<div class="title"><span>' + esc(a.name) + '</span><span>' + esc(a.system_state || "—") + '</span></div>' +
+      '<div class="kv">' +
       '<div><b>NAV</b>' + money(a.nav) + '</div>' +
       '<div><b>Unrealized</b><span class="' + cls(a.unrealized_pl) + '">' + money(a.unrealized_pl) + '</span></div>' +
       '<div><b>Realized today*</b><span class="' + cls(a.realized_pl_today) + '">' + money(a.realized_pl_today) + '</span></div>' +
       '<div><b>Margin used / avail</b>' + money(a.margin_used) + ' / ' + money(a.margin_available) + '</div>' +
-      '<div><b>State</b>' + esc(a.system_state || "—") + '</div>' +
+      '</div>' +
       (a.error ? '<div class="err">' + esc(a.error) + '</div>' : '') +
       '</div>';
   }
-  sumHtml += '<div class="meta">* realized today ≈ OANDA resettablePL when available</div>';
+  sumHtml += '</div><div class="footnote">* realized today ≈ OANDA resettablePL when available</div>';
   document.getElementById("account-summaries").innerHTML = sumHtml || '<div class="empty">No accounts</div>';
 
   const trades = ov.trades || [];
   if (!trades.length) {
     document.getElementById("trades").innerHTML = '<div class="empty">No open trades</div>';
   } else {
-    let t = '<table><thead><tr><th>Account</th><th>Instrument</th><th>Dir</th><th class="num">Units</th><th class="num">Entry</th><th class="num">SL</th><th class="num">TP</th><th class="num">uPL</th><th>Open (UTC)</th></tr></thead><tbody>';
+    let mobile = '<div class="cards mobile-only">';
+    for (const x of trades) {
+      mobile += '<div class="card row-card">' +
+        '<div class="top"><span class="inst">' + esc(x.instrument) + ' · ' + esc(x.direction) +
+        '</span><span class="' + cls(x.unrealized_pl) + '">' + money(x.unrealized_pl) + '</span></div>' +
+        '<div class="top"><span class="acct">' + esc(x.account) + '</span><span class="acct">' + esc(x.open_time) + '</span></div>' +
+        '<div class="stats">' +
+        '<div><span>Units</span> ' + esc(x.units) + '</div>' +
+        '<div><span>Entry</span> ' + esc(x.entry) + '</div>' +
+        '<div><span>SL</span> ' + (x.stop_loss || "—") + '</div>' +
+        '<div><span>TP</span> ' + (x.take_profit || "—") + '</div>' +
+        '</div></div>';
+    }
+    mobile += '</div>';
+    let t = '<div class="scroll desktop-only"><table><thead><tr><th>Account</th><th>Instrument</th><th>Dir</th><th class="num">Units</th><th class="num">Entry</th><th class="num">SL</th><th class="num">TP</th><th class="num">uPL</th><th>Open (UTC)</th></tr></thead><tbody>';
     for (const x of trades) {
       t += '<tr><td>' + esc(x.account) + '</td><td>' + esc(x.instrument) + '</td><td>' + esc(x.direction) +
         '</td><td class="num">' + esc(x.units) + '</td><td class="num">' + esc(x.entry) +
@@ -175,54 +259,81 @@ async function refresh() {
         '</td><td class="num ' + cls(x.unrealized_pl) + '">' + money(x.unrealized_pl) +
         '</td><td>' + esc(x.open_time) + '</td></tr>';
     }
-    t += '</tbody></table>';
-    document.getElementById("trades").innerHTML = t;
+    t += '</tbody></table></div>';
+    document.getElementById("trades").innerHTML = mobile + t;
   }
 
   // Health
-  let h = '<table><thead><tr><th>Account</th><th>State</th><th>Stream</th><th>Heartbeat</th><th>Reconcile</th><th>Calendar</th><th>Level</th><th>Source</th></tr></thead><tbody>';
+  let hm = '<div class="cards mobile-only">';
+  let h = '<div class="scroll desktop-only"><table><thead><tr><th>Account</th><th>State</th><th>Stream</th><th>Heartbeat</th><th>Reconcile</th><th>Calendar</th><th>Level</th><th>Source</th></tr></thead><tbody>';
   for (const e of (ov.health || [])) {
     const hb = e.heartbeat_age_ms != null ? (e.heartbeat_age_ms/1000).toFixed(0) + "s" : "—";
     const calA = e.calendar_as_of_age_ms != null ? (e.calendar_as_of_age_ms/1000).toFixed(0) + "s" : "—";
     const rec = e.last_reconcile_ok == null ? "—" : (e.last_reconcile_ok ? "ok" : "fail");
+    const calTxt = (e.calendar_fresh ? "fresh " : "stale ") + calA;
+    hm += '<div class="card row-card">' +
+      '<div class="top"><span class="inst">' + esc(e.account) + '</span>' + pill(e.level, e.level) + '</div>' +
+      '<div class="stats">' +
+      '<div><span>State</span> ' + esc(e.state) + '</div>' +
+      '<div><span>Stream</span> ' + esc(e.stream) + '</div>' +
+      '<div><span>Heartbeat</span> ' + hb + '</div>' +
+      '<div><span>Reconcile</span> ' + rec + '</div>' +
+      '<div><span>Calendar</span> ' + calTxt + '</div>' +
+      '<div><span>Source</span> ' + esc(e.status_source) + '</div>' +
+      '</div>' +
+      ((e.notes && e.notes.length) ? '<div class="footnote">' + esc(e.notes.join(" · ")) + '</div>' : '') +
+      '</div>';
     h += '<tr><td>' + esc(e.account) + '</td><td>' + esc(e.state) + '</td><td>' + esc(e.stream) +
-      '</td><td>' + hb + '</td><td>' + rec + '</td><td>' + (e.calendar_fresh ? "fresh " : "stale ") + calA +
+      '</td><td>' + hb + '</td><td>' + rec + '</td><td>' + calTxt +
       '</td><td>' + pill(e.level, e.level) + '</td><td>' + esc(e.status_source) + '</td></tr>';
     if (e.notes && e.notes.length) {
       h += '<tr><td colspan="8" class="meta">' + esc(e.notes.join(" · ")) + '</td></tr>';
     }
   }
-  h += '</tbody></table>';
-  document.getElementById("health").innerHTML = h;
+  hm += '</div>';
+  h += '</tbody></table></div>';
+  document.getElementById("health").innerHTML = hm + h;
 
   // Calendar
   let c = "";
   if (cal.warning) c += '<div class="banner show">' + esc(cal.warning) + '</div>';
-  c += '<div class="meta">as_of ' + esc(cal.as_of || "—") + (cal.fresh ? " · fresh" : " · stale/missing") + '</div>';
+  c += '<div class="footnote">as_of ' + esc(cal.as_of || "—") + (cal.fresh ? " · fresh" : " · stale/missing") + '</div>';
   const evs = cal.events || [];
   if (!evs.length) c += '<div class="empty">No upcoming high-impact events</div>';
   else {
-    c += '<table><thead><tr><th>Region</th><th>Title</th><th>Impact</th><th>UTC</th><th>Europe/Berlin</th></tr></thead><tbody>';
+    let cm = '<div class="cards mobile-only">';
+    for (const e of evs) {
+      cm += '<div class="card row-card">' +
+        '<div class="top"><span class="inst">' + esc(e.title) + '</span><span class="acct">' + esc(e.impact) + '</span></div>' +
+        '<div class="stats">' +
+        '<div><span>Region</span> ' + esc(e.region) + '</div>' +
+        '<div><span>UTC</span> ' + esc(e.time_utc) + '</div>' +
+        '<div><span>Berlin</span> ' + esc(e.time_berlin) + '</div>' +
+        '</div></div>';
+    }
+    cm += '</div>';
+    c += cm + '<div class="scroll desktop-only"><table><thead><tr><th>Region</th><th>Title</th><th>Impact</th><th>UTC</th><th>Europe/Berlin</th></tr></thead><tbody>';
     for (const e of evs) {
       c += '<tr><td>' + esc(e.region) + '</td><td>' + esc(e.title) + '</td><td>' + esc(e.impact) +
         '</td><td>' + esc(e.time_utc) + '</td><td>' + esc(e.time_berlin) + '</td></tr>';
     }
-    c += '</tbody></table>';
+    c += '</tbody></table></div>';
   }
   document.getElementById("calendar").innerHTML = c;
 
   // P&L
-  let p = '<div class="meta">Day buckets: DATE(close_time) in ' + esc(cfg.reporting_tz) + '</div>';
+  let p = '<div class="footnote">Day buckets: DATE(close_time) in ' + esc(cfg.reporting_tz) + '</div>';
   if (!dailyByAccount.length) {
     p += '<div class="empty">No account configured for P&amp;L</div>';
   } else {
     for (const daily of dailyByAccount) {
-      p += '<div class="summary">' +
-        '<div><b>Account</b>' + esc(daily.account) + '</div>' +
+      p += '<div class="card" style="margin-top:10px">' +
+        '<div class="title"><span>' + esc(daily.account) + '</span></div>' +
+        '<div class="kv">' +
         '<div><b>7-day total</b><span class="' + cls(daily.total_7d) + '">' + money(daily.total_7d) + '</span></div>' +
         '<div><b>All-time</b><span class="' + cls(daily.total_all) + '">' + money(daily.total_all) + '</span></div>' +
-        '<div><b>All-time close fills</b>' + esc(daily.trade_count_all) + '</div>' +
-        '</div>';
+        '<div><b>Close fills</b>' + esc(daily.trade_count_all) + '</div>' +
+        '</div></div>';
       if (daily.errors && daily.errors.length) {
         p += '<div class="err">' + esc(daily.errors.join(" · ")) + '</div>';
         continue;
@@ -237,13 +348,13 @@ async function refresh() {
             esc(d.day) + ': ' + money(d.realized_pl) + '"></i>';
         }
         p += '</div>';
-        p += '<table><thead><tr><th>Day</th><th class="num">Realized</th><th class="num">Close fills</th><th class="num">W</th><th class="num">L</th></tr></thead><tbody>';
+        p += '<div class="scroll"><table><thead><tr><th>Day</th><th class="num">Realized</th><th class="num">Close fills</th><th class="num">W</th><th class="num">L</th></tr></thead><tbody>';
         for (const d of (daily.days || [])) {
           p += '<tr><td>' + esc(d.day) + '</td><td class="num ' + cls(d.realized_pl) + '">' + money(d.realized_pl) +
             '</td><td class="num">' + esc(d.trade_count) + '</td><td class="num">' + esc(d.wins||0) +
             '</td><td class="num">' + esc(d.losses||0) + '</td></tr>';
         }
-        p += '</tbody></table>';
+        p += '</tbody></table></div>';
       } else {
         p += '<div class="empty">No closed trades in lookback window</div>';
       }

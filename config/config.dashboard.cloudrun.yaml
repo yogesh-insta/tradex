@@ -104,9 +104,9 @@ dashboard:
     token: "${DASHBOARD_TOKEN}"
   gcs:
     calendar_object: "gs://tradex-demo-state/calendar-state.json"
+    status_object: "gs://tradex-demo-state/status.json"
   # No ledger_file: realized P&L comes from OANDA ORDER_FILL history until a
   # BigQuery trade ledger is configured. This must never point at sample JSON.
-  # status_file omitted — health panel degrades until trader publishes status.json
   cache_ttl: { overview: 60s, calendar: 60s, pl: 180s }
   ui: { refresh_interval: 20s, pl_daily_lookback_days: 30, reporting_tz: "UTC" }
   # The poller runs every 2h; allow one delayed scheduler invocation.
