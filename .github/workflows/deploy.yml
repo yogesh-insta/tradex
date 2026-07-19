@@ -49,5 +49,4 @@ jobs:
 
       - name: Pull, build, restart on VM
         run: |
-          ssh -i ~/.ssh/id_ed25519 "${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_HOST }}" \
-            "bash /opt/tradex/deploy/scripts/deploy.sh ${{ inputs.environment }}"
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_HOST }}"             "sudo chown -R \$(id -un):\$(id -gn) /opt/tradex && bash /opt/tradex/deploy/scripts/deploy.sh ${{ inputs.environment }}"

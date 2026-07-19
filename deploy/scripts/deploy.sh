@@ -21,6 +21,8 @@ cd "${APP_DIR}"
 echo "==> pulling latest main"
 # Repo may be owned by a different user than the deploy SSH user.
 git config --global --add safe.directory "${APP_DIR}"
+# Service/runtime may own data/*; reclaim so git can update the working tree.
+sudo chown -R "$(id -un):$(id -gn)" "${APP_DIR}"
 git fetch origin main
 git checkout main
 git reset --hard origin/main
