@@ -149,6 +149,33 @@ func TestCalendarParsesStateAndFailSafe(t *testing.T) {
 	}
 }
 
+func TestCalendarSortsLatestFirst(t *testing.T) {
+	cal := []byte(`{
+		"as_of":"2026-07-19T11:00:00Z",
+		"events":[
+			{"region":"EU","title":"Soon","impact":"high","time":"2026-07-19T14:00:00Z"},
+			{"region":"US","title":"Later","impact":"high","time":"2026-07-29T18:00:00Z"},
+			{"region":"JP","title":"Mid","impact":"high","time":"2026-07-23T12:00:00Z"}
+		]
+	}`)
+	svc := testService(t, nil, cal, nil)
+	c := svc.Calendar(context.Background())
+	if len(c.Events) != 3 {
+		t.Fatalf("want 3 events, got %+v", c.Events)
+	}
+	want := []string{"Later", "Mid", "Soon"}
+	for i, title := range want {
+		if c.Events[i].Title != title {
+			t.Fatalf("events[%d]=%q want %q (latest-first)", i, c.Events[i].Title, title)
+		}
+	}
+	for i := 1; i < len(c.Events); i++ {
+		if c.Events[i-1].TimeUTC.Before(c.Events[i].TimeUTC) {
+			t.Fatalf("not descending: %v before %v", c.Events[i-1].TimeUTC, c.Events[i].TimeUTC)
+		}
+	}
+}
+
 func TestPLDailyAndSevenDayConsistency(t *testing.T) {
 	// Build known daily PLs across 10 days.
 	var trades []ClosedTrade
