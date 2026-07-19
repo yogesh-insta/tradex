@@ -46,11 +46,11 @@ remain deferred.
 | Risk (per account) | 1% equity/trade · **−$150 daily hard lock** (sized per account) · halt after **3 consecutive losses** · one open trade per instrument. |
 | FX daily trade cap | **One accepted entry per Tokyo session day** on `USD_JPY` (no same-day re-entry). EU keeps no daily cap (§10). |
 | Correlation guard | `DE30`/`FR40` treated as correlated → **only one of the pair open at a time**. FX v1 single-instrument (no cross group yet). |
-| Kill switch | Daily breaker → **`SYSTEM_LOCKED`**; **no auto re-arm**; cleared only by a signed `RE_ARM` (snapshots new baseline equity). Per account. |
+| Kill switch | Daily/consecutive breaker → **per-account lock**; **no auto re-arm**; cleared only by signed `RE_ARM` (snapshots that account's new baseline equity). |
 | Alerts | **Telegram** calendar review is live (`cmd/calendarpoller`). Trade/session/breaker Telegram notifier via Pub/Sub is **deferred** (`12-observability-and-alerts.md`). Control-plane webhook inbound. |
 | Persistence | **Trade ledger → BigQuery** (sidecar deferred; stdout publisher in v1); **tick lake deferred**. |
 | Validation (EU) | **OANDA `fxpractice` paper account**; no offline backtest harness required for EU. |
-| Validation (FX) | Offline backtest + paper soak are **soft targets** (guide promotion; not a hard live blocker) — `19-fx-validation-backtest.md`. |
+| Validation (FX) | Soft targets in `19` guide promotion (not a hard live blocker). Offline FX harness not wired yet — paper soak until then. |
 
 ---
 
@@ -586,10 +586,10 @@ Single binary; the only writer to OANDA. Modules (each its own package, config-d
 - **Market data**: OANDA pricing WebSocket; heartbeat monitoring; reconnect with
   exponential backoff; gap detection. Real-time ticks drive triggers; authoritative OHLC
   comes from the OANDA candle endpoint so a dropped stream cannot corrupt a signal.
-- **Session controllers** (in RAM, rebuildable): US tracks 09:30–09:45 ET opening range;
-  EU tracks 08:00–09:00 CET range + 14-day ATR; Asia tracks overnight gap + Bollinger
-  state. All window times derived from IANA zones with DST + trading-holiday calendar
-  applied.
+- **Session controllers** (in RAM, rebuildable): **shipped** EU (08:00–09:00 CET range
+  + 14-day ATR) and FX (09:00–11:00 JST Tokyo range + 14-day ATR). US / Asia-index
+  controllers remain deferred. Window times use IANA zones (DST-aware); EU applies
+  the trading-holiday file; FX v1 skips weekends only.
 - **Strategy registry**: `map[string]Strategy`, key = instrument (e.g. `NAS100_USD` → US
   sweep). Each strategy keeps its own sliding window (≤50 candles) and implements
   `Analyze(ctx) Signal`.
@@ -598,9 +598,11 @@ Single binary; the only writer to OANDA. Modules (each its own package, config-d
   - Per-account portfolio: **−$150 daily loss hard lock**, max concurrent positions,
     consecutive-loss circuit breaker (halt after 3), correlation guard
     (`DE30`/`FR40`; future `US100`/`SPX500`) allowing only one of a correlated pair.
-  - One concurrent trade per index; no per-day trade cap beyond the above.
-  - Kill switch: daily breaker → `SYSTEM_LOCKED` (halt all new entries; managed
-    positions keep broker-side stops); cleared only by a signed `RE_ARM`.
+  - One concurrent trade per instrument. **EU:** no daily trade-count cap.
+    **FX:** one accepted entry per Tokyo session day (`already_traded_today`).
+  - Kill switch: daily/consecutive breaker → an **account-scoped lock** (managed
+    positions keep broker-side stops); cleared only by a signed `RE_ARM`. A breaker
+    on EU does not block FX, or vice versa.
 - **Executor** (broker-abstracted): `OrderExecutor` interface, OANDA implementation
   first. Every entry opens **atomically with bracket SL/TP**. Idempotency via
   `clientExtensions.id`. Instrument-metadata layer (point value, margin rate, min size,
@@ -638,23 +640,26 @@ A lightweight inbound API turns the outbound-only pipeline into a two-way admin 
 
 - **Transport:** HTTPS `POST` to the VM on **:8443**; payloads are **HMAC-signed** with a
   shared secret from Secret Manager (rejected if signature/timestamp invalid — replay-safe).
-- **Master Control Routine** owns a small state machine: `ACTIVE ⇄ PAUSED`, and
-  `ACTIVE → SYSTEM_LOCKED` (on breaker or `FLATTEN`) → `ACTIVE` (only via signed `RE_ARM`).
+- **Master Control Routine** owns process-wide `ACTIVE ⇄ PAUSED` and `DISABLED`
+  states. Breakers are separate per-account locks; `SYSTEM_LOCKED` remains a
+  legacy/manual process-wide lock.
 - **Commands:**
   - `FLATTEN` — block all strategy channels, `DELETE` every resting order, market-close
     all open trades, set state `DISABLED`.
-  - `PAUSE` / `RESUME` — sleep/wake specific market controllers; **open positions are
-    untouched** (broker brackets still protect them).
-  - `RE_ARM` — the only exit from `SYSTEM_LOCKED`: resets the daily-loss tracker,
-    snapshots a new baseline equity, sets state `ACTIVE`. **No automatic midnight re-arm.**
+  - `PAUSE` / `RESUME` — **process-wide** in v1 (risk rejects all accounts when not
+    `ACTIVE`); **open positions are untouched** (broker brackets still protect them).
+  - `RE_ARM` — clears every breaker-locked account and snapshots each affected account's
+    new baseline equity; it also exits legacy global locks. **No automatic midnight re-arm.**
 - Calendar review Telegram is live; trade/session Telegram alerts remain deferred.
-  The control-plane webhook is **inbound** only.
+  The control-plane webhook is **inbound** only (no Telegram command confirmations yet).
 
 ---
 
 ## 7. Payloads / data contracts
 
-Proposed Go shapes (no code exists yet); field sources noted.
+Canonical shapes live in [`pkg/types`](../pkg/types/types.go) (normative:
+[`specs/01-data-contracts.md`](./specs/01-data-contracts.md)). Sketch below for reading
+convenience; when this section drifts, prefer `pkg/types` + spec 01.
 
 ```go
 // OANDA WebSocket unit (GCP services.md → historical_ticks)
@@ -767,10 +772,10 @@ for v1). Live vs paper is selected by the OANDA host/credentials, per account.
   P&L vs drawdown limits → Telegram + Cloud Monitoring.
 - **Security**: Secret Manager + attached SA (no key files); least-privilege per component.
 - **Validation**: EU is validated on the OANDA `fxpractice` **paper account** (same
-  code path, paper host) without a required offline harness. **FX TRLD** uses offline
-  backtest + paper soak as **soft targets** that guide promotion — not a hard live
-  blocker (`19-fx-validation-backtest.md`). Strategy and risk stay pure/importable so
-  the harness shares production logic.
+  code path, paper host). `cmd/backtester` currently replays **EU LOVE only**.
+  **FX TRLD** soft targets (offline harness + paper soak) are specified in
+  `19-fx-validation-backtest.md` (Decision B — guide, not a hard live blocker); the
+  FX offline path is not wired yet — paper soak is the practical check until then.
 
 ---
 

@@ -37,10 +37,9 @@ func testConfig(t *testing.T) Config {
 		PipSize:          0.01,
 		TradeWindowStart: "16:00:00",
 		EntryWindowEnd:   "19:00:00",
-		FridayCutoff:     "16:00:00",
-		FridayCutoffLoc:  mustNY(t),
-		SoftCutoff:       "21:00:00",
-		Location:         mustTokyo(t),
+		FridayCutoff:    "16:00:00",
+		FridayCutoffLoc: mustNY(t),
+		Location:        mustTokyo(t),
 	}
 }
 
@@ -177,6 +176,51 @@ func TestAnalyzeEntryMatrix(t *testing.T) {
 				t.Fatalf("R:R = %v, want 3", tpDist/slDist)
 			}
 		})
+	}
+}
+
+func TestTimeCutoffFridayOnly(t *testing.T) {
+	s, err := New(testConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := baseState()
+	candle := types.Candle{Open: 150.35, High: 150.50, Low: 150.30, Close: 150.45, Volume: 150}
+
+	// Wednesday: soft cutoff must NOT seed Policy.TimeCutoff (mgmt owns weak-R).
+	wed := eventAt(t, "16:30:00", candle)
+	sig := s.Analyze(wed, st)
+	if sig == nil {
+		t.Fatal("expected Wednesday signal")
+	}
+	if !sig.Policy.TimeCutoff.IsZero() {
+		t.Fatalf("Wednesday TimeCutoff = %v, want zero", sig.Policy.TimeCutoff)
+	}
+
+	// Friday NY: hard flatten seeds TimeCutoff.
+	ny := mustNY(t)
+	friNY := time.Date(2026, 7, 17, 3, 30, 0, 0, ny) // Fri 03:30 NY = Fri 16:30 JST
+	fri := types.MarketEvent{
+		Instrument: "USD_JPY",
+		Now:        friNY.In(mustTokyo(t)),
+		Timeframe:  types.M5,
+		Last: types.Candle{
+			Instrument: "USD_JPY", Timeframe: types.M5, Complete: true,
+			Open: 150.35, High: 150.50, Low: 150.30, Close: 150.45, Volume: 150,
+			Start: friNY.In(mustTokyo(t)).Add(-5 * time.Minute),
+		},
+		Price: 150.45,
+	}
+	sig = s.Analyze(fri, st)
+	if sig == nil {
+		t.Fatal("expected Friday signal")
+	}
+	want, err := time.ParseInLocation("2006-01-02 15:04:05", "2026-07-17 16:00:00", ny)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sig.Policy.TimeCutoff.Equal(want) {
+		t.Fatalf("Friday TimeCutoff = %v, want %v", sig.Policy.TimeCutoff, want)
 	}
 }
 

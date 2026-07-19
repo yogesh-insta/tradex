@@ -120,15 +120,12 @@ fx_risk:           # 18 — bound via accounts[] strategy fx_trld
   calendar_regions: ["US", "JP"]
   pip_size: 0.01
 
-fx_backtest:       # 19 — soft targets; not required by trader boot
-  spread_pips: 1.0
-  slippage_pips: 0.2
-  pip_size: 0.01
-  starting_equity: 5000
-  min_oos_trades: 80
-  max_oos_dd_frac: 0.15
-  min_profit_factor: 1.1
-  paper_min_weeks: 4
+# fx_backtest:     # 19 — design keys; NOT loaded by config.go / cmd/backtester yet
+#   spread_pips: 1.0
+#   … (see 19-fx-validation-backtest.md)
+
+backtest:          # EU backtester knobs (cmd/backtester)
+  spread_points: 1.0
 
 risk:              # 06 — EU account profile
   risk_per_trade: 0.01

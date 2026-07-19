@@ -67,12 +67,13 @@ type MarketEvent struct {
 }
 
 // SessionState is per-day computed context, RAM only, read-only to strategies.
-// Only EU fields are populated in v1; others reserved for future markets.
+// EU LOVE and FX TRLD both populate OpeningHigh/Low + ATR + VWAP + VolMA12 on
+// their own clocks; US / Asia-index fields remain reserved until those lanes ship.
 type SessionState struct {
 	Instrument string
 
-	// EU LOVE
-	OpeningHigh float64 // 08:00–09:00 CET range (locked at 09:00)
+	// EU LOVE (08:00–09:00 Europe/Berlin) and FX TRLD (09:00–11:00 Asia/Tokyo)
+	OpeningHigh float64 // session range high (locked at range_end)
 	OpeningLow  float64
 	RangeLocked bool    // true once the range window has closed
 	DailyATR    float64 // 14-day ATR (daily candles), computed pre-session
@@ -172,8 +173,8 @@ type SystemState string
 
 const (
 	StateActive     SystemState = "ACTIVE"
-	StatePaused     SystemState = "PAUSED"        // per-market flag, see control-plane
-	StateSystemLock SystemState = "SYSTEM_LOCKED" // daily breaker / manual lock
+	StatePaused     SystemState = "PAUSED"        // process-wide pause (v1)
+	StateSystemLock SystemState = "SYSTEM_LOCKED" // legacy/manual process-wide lock
 	StateDisabled   SystemState = "DISABLED"      // after FLATTEN
 )
 

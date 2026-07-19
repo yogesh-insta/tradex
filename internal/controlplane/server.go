@@ -26,8 +26,9 @@ type Command struct {
 type Actions struct {
 	// Flatten cancels all resting orders and market-closes all open trades.
 	Flatten func(ctx context.Context) error
-	// ReArm resets the daily-loss tracker and snapshots new baseline equity.
-	ReArm func(ctx context.Context) error
+	// ReArm resets the supplied breaker-locked accounts and snapshots their
+	// new baseline equity. A nil/empty list represents a legacy global re-arm.
+	ReArm func(ctx context.Context, accounts []string) error
 	// Status returns the read-only status document.
 	Status func(ctx context.Context) any
 }
@@ -180,7 +181,7 @@ func (s *Server) Execute(ctx context.Context, cmd Command) (string, error) {
 		}
 		return "resumed", nil
 	case "RE_ARM":
-		changed, err := s.machine.ReArm()
+		accounts, changed, err := s.machine.ReArm()
 		if err != nil {
 			return "", err
 		}
@@ -188,11 +189,14 @@ func (s *Server) Execute(ctx context.Context, cmd Command) (string, error) {
 			return "no-op: not locked", nil
 		}
 		if s.actions.ReArm != nil {
-			if err := s.actions.ReArm(ctx); err != nil {
+			if err := s.actions.ReArm(ctx, accounts); err != nil {
 				return "re-armed but baseline snapshot failed", err
 			}
 		}
-		return "re-armed: new baseline equity snapshotted", nil
+		if len(accounts) == 0 {
+			return "re-armed: global lock cleared", nil
+		}
+		return "re-armed accounts: new baseline equity snapshotted", nil
 	case "STATUS":
 		if s.actions.Status != nil {
 			doc, _ := json.Marshal(s.actions.Status(ctx))

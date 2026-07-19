@@ -140,14 +140,14 @@ control_plane:     # 09-control-plane.md
 
 calendar:          # 10-economic-calendar.md
   economic:
-    provider: "file"
+    provider: "gcs"              # VM reads durable GCS object (Cloud Run poller writes)
     fallback_provider: "gemini"
     gemini_model: "gemini-2.5-flash-lite"
-    poll_interval: 20m
+    poll_interval: 2h            # Cloud Scheduler cadence (poller service)
     lookahead_days: 7
     state_file: "data/calendar-state.json"
     local_file: "data/calendar-state.json"
-    gcs_object: "gs://tradex-dev-state/calendar-state.json"
+    gcs_object: "gs://tradex-demo-state/calendar-state.json"
     vm_refresh: 5m
     staleness_max: 90m
     high_impact_only: true

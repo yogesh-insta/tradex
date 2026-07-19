@@ -32,15 +32,20 @@ type Deps struct {
 	TimeToNews func(region string, now time.Time) time.Duration
 	// Region maps an instrument to its news region ("EU").
 	Region func(instrument string) string
-	// SystemState gates the loop: it manages positions in every state except
-	// DISABLED (post-FLATTEN there is nothing left to manage). PAUSED trades
-	// keep being managed to their exit per spec 09.
+	// SystemState is consulted for STATUS/ops; management runs in every state
+	// (including DISABLED) so a partial FLATTEN keeps retrying closes. Entries
+	// are blocked by risk when not ACTIVE.
 	SystemState func() types.SystemState
 	// OnVanished fires when a trade disappears from OpenTrades() between
 	// reconciles (bracket exit): the portfolio settles realized P&L.
 	OnVanished func(t types.OpenTrade)
 	Now        func() time.Time
 }
+
+// noteOpenGrace keeps an optimistically registered fill visible to risk until
+// OANDA's OpenTrades list catches up (avoids correlated double-entry on the
+// same M5 close tick, and avoids false OnVanished during that window).
+const noteOpenGrace = 30 * time.Second
 
 // Loop is the shared, market-agnostic management loop.
 type Loop struct {
@@ -50,7 +55,8 @@ type Loop struct {
 	fx   FXConfig
 
 	mu            sync.Mutex
-	trades        []types.OpenTrade // last reconciled view
+	trades        []types.OpenTrade // reconciled view (+ recent NoteOpen fills)
+	notedAt       map[string]time.Time
 	lastReconcile time.Time
 }
 
@@ -86,14 +92,38 @@ func (l *Loop) Pass(ctx context.Context) {
 	if due {
 		l.reconcile(ctx)
 	}
-	if l.deps.SystemState() == types.StateDisabled {
-		return
-	}
+	// Manage in every state including DISABLED: a partial FLATTEN must keep
+	// retrying closes / time-cutoffs until flat. Entries stay blocked by risk.
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for i := range l.trades {
 		l.manage(ctx, &l.trades[i], now)
 	}
+}
+
+// NoteOpen registers a fill immediately so risk concurrency / correlation
+// gates see it before the next reconcile (same-tick DE30/FR40 closes).
+func (l *Loop) NoteOpen(t types.OpenTrade) {
+	if t.TradeID == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := range l.trades {
+		if l.trades[i].TradeID == t.TradeID {
+			l.trades[i] = t
+			if l.notedAt == nil {
+				l.notedAt = make(map[string]time.Time)
+			}
+			l.notedAt[t.TradeID] = l.deps.Now()
+			return
+		}
+	}
+	l.trades = append(l.trades, t)
+	if l.notedAt == nil {
+		l.notedAt = make(map[string]time.Time)
+	}
+	l.notedAt[t.TradeID] = l.deps.Now()
 }
 
 // manage applies the policy to one trade. Level-triggered: it checks state
@@ -177,23 +207,33 @@ func (l *Loop) reconcile(ctx context.Context) {
 		return
 	}
 	l.mu.Lock()
-	var vanished []types.OpenTrade
-	if l.deps.OnVanished != nil {
-		freshIDs := map[string]bool{}
-		for _, t := range fresh {
-			freshIDs[t.TradeID] = true
-		}
-		for _, prev := range l.trades {
-			if prev.TradeID != "" && !freshIDs[prev.TradeID] {
-				vanished = append(vanished, prev)
-			}
-		}
+	now := l.deps.Now()
+	freshIDs := map[string]bool{}
+	for _, t := range fresh {
+		freshIDs[t.TradeID] = true
+		delete(l.notedAt, t.TradeID)
 	}
-	l.trades = fresh
-	l.lastReconcile = l.deps.Now()
+	var vanished []types.OpenTrade
+	var keep []types.OpenTrade
+	for _, prev := range l.trades {
+		if prev.TradeID == "" || freshIDs[prev.TradeID] {
+			continue
+		}
+		// NoteOpen grace: OANDA list can lag the fill response by a few seconds.
+		if noted, ok := l.notedAt[prev.TradeID]; ok && now.Sub(noted) < noteOpenGrace {
+			keep = append(keep, prev)
+			continue
+		}
+		delete(l.notedAt, prev.TradeID)
+		vanished = append(vanished, prev)
+	}
+	l.trades = append(fresh, keep...)
+	l.lastReconcile = now
 	l.mu.Unlock()
-	for _, t := range vanished {
-		l.deps.OnVanished(t)
+	if l.deps.OnVanished != nil {
+		for _, t := range vanished {
+			l.deps.OnVanished(t)
+		}
 	}
 }
 

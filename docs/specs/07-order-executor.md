@@ -69,9 +69,18 @@ type InstrumentMeta struct {
 ## Config keys
 
 ```yaml
-executor:
-  account_id: "${OANDA_ACCOUNT_ID}"
-  host: "api-fxpractice.oanda.com"   # paper for v1
+oanda:                             # shared host + token (see 13)
+  host: "api-fxpractice.oanda.com" # paper vs live by host/credentials
+  api_token: "${OANDA_API_TOKEN}"
+  timeout: 5s
+
+accounts:                          # one OANDA id per market
+  - name: eu-indices
+    oanda_account_id: "${OANDA_ACCOUNT_ID_EU}"
+    active: true
+    # …
+
+executor:                          # transport knobs only (no host/account here)
   time_in_force: "FOK"
   request_timeout: 5s
   max_retries: 3

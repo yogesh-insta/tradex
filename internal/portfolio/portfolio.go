@@ -88,6 +88,23 @@ func (a *Account) MarkUnknown() {
 func (a *Account) RecordClose(realizedPL float64) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.recordClose(realizedPL)
+}
+
+// RestoreDaily replaces the current daily aggregates with values reconstructed
+// from broker history at boot. baselineEquity is derived from the current
+// equity less realized P&L so status reflects the start-of-day reference.
+func (a *Account) RestoreDaily(realizedPL float64, consecutiveLosses int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.dailyRealized = realizedPL
+	a.consecLosses = consecutiveLosses
+	if a.equityKnown {
+		a.baselineEquity = a.equity - realizedPL
+	}
+}
+
+func (a *Account) recordClose(realizedPL float64) {
 	a.dailyRealized += realizedPL
 	if realizedPL < 0 {
 		a.consecLosses++

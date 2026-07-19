@@ -32,7 +32,7 @@ type State struct {
 }
 
 // Provider fetches the durable calendar state. Implementations: local file
-// (v1) and a GCS stub (wired later; failing provider = fail-safe).
+// and GCS (failing / stale provider = fail-safe blackout).
 type Provider interface {
 	Fetch() (State, error)
 }
@@ -51,15 +51,6 @@ func (p FileProvider) Fetch() (State, error) {
 		return State{}, fmt.Errorf("calendar state parse: %w", err)
 	}
 	return s, nil
-}
-
-// GCSProvider is a stub for the future GCS-backed state object. It always
-// errors, which the cache treats fail-safe (event imminent).
-type GCSProvider struct{ Object string }
-
-// Fetch is not implemented in v1.
-func (p GCSProvider) Fetch() (State, error) {
-	return State{}, fmt.Errorf("gcs calendar provider not implemented (object %s)", p.Object)
 }
 
 // NoImminent is the duration returned when the state is fresh and no

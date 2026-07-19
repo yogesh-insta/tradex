@@ -34,7 +34,7 @@ This lane is **additive**. EU LOVE (`05`) and the EU account are unchanged.
 - Runnable FX lane behind the same strategy router + unified risk, bound to the FX
   account.
 - Specs `16`–`19` as the build contract.
-- Go-live only after `19` acceptance gates pass.
+- Live promotion **guided** by `19` soft targets (Decision B) — not a hard blocker.
 
 ## Success metrics
 
@@ -52,7 +52,7 @@ This lane is **additive**. EU LOVE (`05`) and the EU account are unchanged.
 | 16 | [`16-fx-session-controller.md`](./16-fx-session-controller.md) | Tokyo range lock, 14d ATR, VWAP, VolMA |
 | 17 | [`17-strategy-fx-trld.md`](./17-strategy-fx-trld.md) | Entry matrix → `Signal` |
 | 18 | [`18-fx-risk-profile.md`](./18-fx-risk-profile.md) | FX sizing, one-trade/day, weekend/news gates |
-| 19 | [`19-fx-validation-backtest.md`](./19-fx-validation-backtest.md) | Harness + promotion gates |
+| 19 | [`19-fx-validation-backtest.md`](./19-fx-validation-backtest.md) | Soft-target harness design + promotion guidance |
 
 ## Failure modes
 

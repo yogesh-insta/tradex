@@ -28,11 +28,10 @@ type Config struct {
 	PipSize          float64 // USD_JPY = 0.01
 	TradeWindowStart string  // Asia/Tokyo
 	EntryWindowEnd   string  // Asia/Tokyo
-	FridayCutoff     string  // America/New_York hard flatten clock
-	FridayCutoffLoc  *time.Location
-	SoftCutoff       string // Asia/Tokyo; may seed Policy.TimeCutoff on non-Friday
-	TrailAfterR      float64
-	Location         *time.Location // Asia/Tokyo
+	FridayCutoff    string // America/New_York hard flatten → Policy.TimeCutoff
+	FridayCutoffLoc *time.Location
+	TrailAfterR     float64
+	Location        *time.Location // Asia/Tokyo
 }
 
 // Strategy is stateless across calls beyond SessionState.
@@ -159,24 +158,23 @@ func (s *Strategy) inEntryWindow(now time.Time) bool {
 	return !now.Before(start) && now.Before(end)
 }
 
-// timeCutoff: Friday NY hard flatten when configured; else optional soft cutoff.
+// timeCutoff sets Policy.TimeCutoff for Friday NY hard flatten only.
+// Soft-cutoff weak-R flatten (< soft_cutoff_flatten_r) is owned by trademgmt
+// (spec 18) — never seed TimeCutoff with the soft cutoff, or winning trades
+// would flatten unconditionally at 21:00 JST.
 func (s *Strategy) timeCutoff(now time.Time) time.Time {
-	if s.cfg.FridayCutoff != "" && s.cfg.FridayCutoffLoc != nil {
-		ny := now.In(s.cfg.FridayCutoffLoc)
-		if ny.Weekday() == time.Friday {
-			t, err := utils.AtClock(now, s.cfg.FridayCutoff, s.cfg.FridayCutoffLoc)
-			if err == nil {
-				return t
-			}
-		}
+	if s.cfg.FridayCutoff == "" || s.cfg.FridayCutoffLoc == nil {
+		return time.Time{}
 	}
-	if s.cfg.SoftCutoff != "" {
-		t, err := utils.AtClock(now, s.cfg.SoftCutoff, s.cfg.Location)
-		if err == nil {
-			return t
-		}
+	ny := now.In(s.cfg.FridayCutoffLoc)
+	if ny.Weekday() != time.Friday {
+		return time.Time{}
 	}
-	return time.Time{}
+	t, err := utils.AtClock(now, s.cfg.FridayCutoff, s.cfg.FridayCutoffLoc)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 func breakoutWord(dir string) string {

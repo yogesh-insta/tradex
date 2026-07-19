@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,8 @@ type entryContext struct {
 	reason        string
 }
 
+const initialRiskCommentPrefix = "tradex:initial-risk="
+
 // NewOANDAExecutor builds the executor. Call LoadInstruments before trading.
 func NewOANDAExecutor(client *oanda.Client, accountID, accountName, timeInForce string, log *slog.Logger, pub logging.Publisher) *OANDAExecutor {
 	return &OANDAExecutor{
@@ -62,17 +65,34 @@ func NewOANDAExecutor(client *oanda.Client, accountID, accountName, timeInForce 
 // LoadInstruments fetches and caches instrument metadata at boot. Fails if a
 // required instrument is missing — the system must not trade blind (spec 07).
 func (e *OANDAExecutor) LoadInstruments(ctx context.Context, required []string) error {
-	resp, err := e.client.Instruments(ctx, e.accountID, required)
+	summary, err := e.client.AccountSummary(ctx, e.accountID)
+	if err != nil {
+		return fmt.Errorf("executor: load account currency: %w", err)
+	}
+	accountCurrency := strings.ToUpper(summary.Currency)
+	if len(accountCurrency) != 3 {
+		return fmt.Errorf("executor: invalid account currency %q", summary.Currency)
+	}
+	resp, err := e.client.Instruments(ctx, e.accountID, nil)
 	if err != nil {
 		return fmt.Errorf("executor: load instruments: %w", err)
 	}
-	e.metaMu.Lock()
+	available := make(map[string]oanda.RESTInstrument, len(resp.Instruments))
 	for _, ri := range resp.Instruments {
+		available[ri.Name] = ri
+	}
+	e.metaMu.Lock()
+	defer e.metaMu.Unlock()
+	for _, sym := range required {
+		ri, ok := available[sym]
+		if !ok {
+			return fmt.Errorf("executor: required instrument %s missing from account %s", sym, e.account)
+		}
 		minUnits := float64(ri.MinimumTradeSize)
 		if minUnits <= 0 {
 			minUnits = 1
 		}
-		e.meta[ri.Name] = InstrumentMeta{
+		meta := InstrumentMeta{
 			Symbol:         ri.Name,
 			DisplayName:    ri.DisplayName,
 			PricePrecision: ri.DisplayPrecision,
@@ -80,19 +100,68 @@ func (e *OANDAExecutor) LoadInstruments(ctx context.Context, required []string) 
 			UnitsPrecision: ri.TradeUnitsPrecision,
 			MinUnits:       minUnits,
 			MarginRate:     float64(ri.MarginRate),
-			// v1 simplification: 1 unit × 1.0 price point = 1 unit of quote
-			// currency. Cross-currency conversion (EUR quote vs USD account)
-			// is a deviation noted in the README.
-			PointValue: 1.0,
 		}
-	}
-	e.metaMu.Unlock()
-	for _, sym := range required {
-		if _, err := e.Instrument(sym); err != nil {
-			return fmt.Errorf("executor: required instrument %s missing from account %s", sym, e.account)
+		pointValue, err := pointValueForAccount(meta, accountCurrency, available, func(instrument string) (float64, error) {
+			return e.client.MidPrice(ctx, e.accountID, instrument)
+		})
+		if err != nil {
+			return fmt.Errorf("executor: derive point value for %s: %w", sym, err)
 		}
+		meta.PointValue = pointValue
+		e.meta[ri.Name] = meta
 	}
 	return nil
+}
+
+// pointValueForAccount converts one pip per unit into the account currency.
+// An instrument's suffix is its quote/P&L currency (for example USD_JPY and
+// DE30_EUR). OANDA's current midpoint converts that currency when necessary.
+func pointValueForAccount(meta InstrumentMeta, accountCurrency string, available map[string]oanda.RESTInstrument, midPrice func(string) (float64, error)) (float64, error) {
+	parts := strings.Split(meta.Symbol, "_")
+	if len(parts) != 2 || len(parts[1]) != 3 {
+		return 0, fmt.Errorf("cannot determine quote currency")
+	}
+	quoteCurrency := strings.ToUpper(parts[1])
+	pipValue := math.Pow10(meta.PipLocation)
+	if pipValue <= 0 {
+		return 0, fmt.Errorf("invalid pip location %d", meta.PipLocation)
+	}
+	if quoteCurrency == accountCurrency {
+		return pipValue, nil
+	}
+
+	var conversion string
+	invert := false
+	if len(parts[0]) == 3 && strings.EqualFold(parts[0], accountCurrency) {
+		// USD_JPY in a USD account: 1 JPY = 1 / USD_JPY USD.
+		conversion = strings.ToUpper(parts[0]) + "_" + quoteCurrency
+		invert = true
+	} else {
+		direct := quoteCurrency + "_" + accountCurrency
+		inverse := accountCurrency + "_" + quoteCurrency
+		if _, ok := available[direct]; ok {
+			conversion = direct
+		} else if _, ok := available[inverse]; ok {
+			conversion = inverse
+			invert = true
+		} else {
+			return 0, fmt.Errorf("no direct conversion from %s to %s", quoteCurrency, accountCurrency)
+		}
+	}
+	if _, ok := available[conversion]; !ok {
+		return 0, fmt.Errorf("conversion instrument %s is unavailable", conversion)
+	}
+	mid, err := midPrice(conversion)
+	if err != nil {
+		return 0, fmt.Errorf("price %s: %w", conversion, err)
+	}
+	if mid <= 0 {
+		return 0, fmt.Errorf("invalid midpoint for %s", conversion)
+	}
+	if invert {
+		return pipValue / mid, nil
+	}
+	return pipValue * mid, nil
 }
 
 // Instrument implements OrderExecutor.
@@ -177,6 +246,19 @@ func (e *OANDAExecutor) Open(ctx context.Context, req types.OrderRequest) (types
 		Policy:        req.Policy,
 		OpenedAt:      fill.Time,
 	}
+	// The fill price is not known when the market order is created, so persist
+	// the exact initial distance on the resulting trade. This survives a
+	// restart after the stop has moved to breakeven.
+	if err := e.client.SetTradeClientExtensions(ctx, e.accountID, trade.TradeID, oanda.ClientExtensions{
+		ID:      req.ClientOrderID,
+		Tag:     req.Strategy,
+		Comment: initialRiskComment(trade.RiskDistance),
+	}); err != nil {
+		// The trade is already live; retain RAM context for this process rather
+		// than reporting it as unopened. Reconciliation still falls back safely
+		// to the current stop if OANDA could not persist the extension.
+		e.log.Error("persist initial risk distance failed", "trade_id", trade.TradeID, "error", err)
+	}
 	e.remember(trade, req)
 	e.pub.Publish(types.TradeEvent{
 		Type: "opened", TradeID: trade.TradeID, ClientOrderID: req.ClientOrderID,
@@ -260,7 +342,8 @@ func (e *OANDAExecutor) CancelAllOrders(ctx context.Context) error {
 }
 
 // OpenTrades implements OrderExecutor: OANDA is the source of truth; entry
-// context (policy, initial risk distance) is re-attached from RAM when known.
+// context is re-attached from RAM when known and initial risk is restored from
+// the broker-visible trade extension after a restart.
 func (e *OANDAExecutor) OpenTrades(ctx context.Context) ([]types.OpenTrade, error) {
 	resp, err := e.client.OpenTrades(ctx, e.accountID)
 	if err != nil {
@@ -287,6 +370,7 @@ func (e *OANDAExecutor) OpenTrades(ctx context.Context) ([]types.OpenTrade, erro
 		if rt.TakeProfitOrder != nil {
 			t.CurrentTP = float64(rt.TakeProfitOrder.Price)
 		}
+		persistedRisk, hasPersistedRisk := initialRiskFromExtensions(rt.ClientExtensions)
 		if ctxE, ok := e.byTradeID[rt.ID]; ok {
 			t.Policy = ctxE.policy
 			t.RiskDistance = ctxE.riskDistance
@@ -294,9 +378,12 @@ func (e *OANDAExecutor) OpenTrades(ctx context.Context) ([]types.OpenTrade, erro
 			t.Policy = ctxE.policy
 			t.RiskDistance = ctxE.riskDistance
 			e.byTradeID[rt.ID] = ctxE
+		} else if hasPersistedRisk {
+			t.RiskDistance = persistedRisk
 		} else {
 			// Restart without RAM context: best-effort risk distance from the
-			// current SL (exact if the stop was never moved).
+			// current SL. Trades opened before initial-risk persistence was
+			// deployed cannot recover the original distance after breakeven.
 			t.RiskDistance = math.Abs(t.Entry - t.CurrentSL)
 		}
 		out = append(out, t)
@@ -342,6 +429,21 @@ func (e *OANDAExecutor) remember(t types.OpenTrade, req types.OrderRequest) {
 	}
 	e.byClient[req.ClientOrderID] = ec
 	e.byTradeID[t.TradeID] = ec
+}
+
+func initialRiskComment(distance float64) string {
+	return initialRiskCommentPrefix + strconv.FormatFloat(distance, 'g', -1, 64)
+}
+
+func initialRiskFromExtensions(extensions *oanda.ClientExtensions) (float64, bool) {
+	if extensions == nil || !strings.HasPrefix(extensions.Comment, initialRiskCommentPrefix) {
+		return 0, false
+	}
+	distance, err := strconv.ParseFloat(strings.TrimPrefix(extensions.Comment, initialRiskCommentPrefix), 64)
+	if err != nil || math.IsNaN(distance) || math.IsInf(distance, 0) || distance <= 0 {
+		return 0, false
+	}
+	return distance, true
 }
 
 func (e *OANDAExecutor) publishReject(req types.OrderRequest, reason string) {

@@ -28,9 +28,10 @@ EU risk numbers and correlation groups are unchanged.
 
 Same fail-fast order as `06`, with FX deltas called out:
 
-1. **System state:** reject unless FX lane `ACTIVE`.
-2. **Kill/breaker:** today’s FX realized loss ≤ `-daily_loss_limit` → `SYSTEM_LOCKED`,
-   reject `daily_loss_breaker`.
+1. **Process state:** reject unless the process is `ACTIVE`; global `PAUSE` and
+   `FLATTEN` block every account.
+2. **Kill/breaker:** today’s FX realized loss ≤ `-daily_loss_limit` → lock the FX
+   account only, reject `daily_loss_breaker`.
 3. **Data health:** reject `stale_market_data`.
 4. **News window:** reject `news_blackout` if a high-impact event tagged for FX regions
    (`US`, `JP`, or instrument `USD_JPY`) is within `news_block_before` (default 60m for
@@ -79,13 +80,20 @@ Risk blocks **entries**. Exits:
 - FX daily P&L baseline, consecutive-loss counter, and kill switch are **per FX
   account**. EU breaker does not lock FX and vice versa (unless operator issues a
   global command).
+- Daily state rolls at each lane's session midnight: FX uses `fx_session.tz`
+  (normally `Asia/Tokyo`) and EU uses `eu_session.tz` (`Europe/Berlin`). Boot
+  recovery queries OANDA fills from the same account-specific boundary.
 - `OrderRequest.Account` must be the FX account id.
 
 ## Config keys
 
 ```yaml
+# Account binding is via accounts[] (see 13), not fx_risk.account_id:
+#   - name: fx-usdjpy
+#     oanda_account_id: "${OANDA_ACCOUNT_ID_FX}"
+#     strategy: fx_trld
+#     instruments: [USD_JPY]
 fx_risk:
-  account_id: "${OANDA_FX_ACCOUNT_ID}"
   risk_per_trade: 0.01
   daily_loss_limit: 150          # size to account; example for ~$5k
   consecutive_loss_halt: 3
@@ -100,6 +108,7 @@ fx_risk:
   friday_hard_flatten: "16:00:00" # America/New_York
   soft_cutoff_flatten_r: 0.5     # flatten if below this R at soft cutoff
   calendar_regions: ["US", "JP"]
+  pip_size: 0.01
 
 # trade-management additions (see also 08)
 mgmt:
@@ -109,8 +118,9 @@ mgmt:
   fx_soft_cutoff: "21:00:00"
 ```
 
-Calendar config should include high-impact Fed, BOJ, US CPI/NFP, JP CPI for regions
-`US`/`JP` (amendment to `10` / `13` when wiring).
+When FX is active, calendar poller regions should include `US`/`JP` (high-impact Fed,
+BOJ, CPI/NFP). Prod may keep `calendar.economic.regions: ["EU"]` while FX is
+`active: false` — expand regions before enabling prod FX.
 
 ## Failure modes
 

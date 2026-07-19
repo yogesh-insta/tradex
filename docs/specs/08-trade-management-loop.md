@@ -63,10 +63,22 @@ on each timer tick (if SystemState == ACTIVE):
 - News flatten: move SL→entry `news_block_before` (30 min) ahead of a high-impact EU
   event; entries are already blocked by risk in that window.
 
+### FX-specific extras (see also `18`)
+
+Applied in `trademgmt` when the FX account loop has FX config enabled:
+
+- **Friday NY hard flatten** (`fx_friday_cutoff`, default 16:00 `America/New_York`) —
+  unconditional close (also seeded as `Policy.TimeCutoff` on Friday signals).
+- **Soft cutoff weak flatten** (`fx_soft_cutoff` default 21:00 `Asia/Tokyo`): flatten
+  only if `profitR < soft_cutoff_flatten_r` (default 0.5). **Not** via
+  `Policy.TimeCutoff` (that field is unconditional).
+- **News:** underwater → market flatten; in profit → move SL to entry (unlike EU
+  always-BE).
+
 ### Trailing (optional)
 
 - Pure trailing is offloaded to OANDA (`trailingStopLossOnFill`) when a policy sets
-  `Trail`. EU v1 sets `Trail=""` (no trailing). The loop never emulates trailing.
+  `Trail`. EU/FX v1 sets `Trail=""` (no trailing). The loop never emulates trailing.
 
 ## Config keys
 
@@ -77,6 +89,10 @@ mgmt:
   news_block_before: 30m
   eu_friday_cutoff: "17:30:00"   # Europe/Berlin
   eu_daily_cutoff: ""            # empty = none (v1)
+  fx_friday_cutoff_tz: "America/New_York"
+  fx_friday_cutoff: "16:00:00"
+  fx_soft_cutoff_tz: "Asia/Tokyo"
+  fx_soft_cutoff: "21:00:00"
 ```
 
 ## Failure modes

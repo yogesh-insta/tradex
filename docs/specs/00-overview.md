@@ -26,8 +26,8 @@ disagree, architecture wins and the spec should be corrected.
   `fx-usdjpy`).
 - **Enablement:** set `accounts` entry `active: true` and `OANDA_ACCOUNT_ID_FX`
   (dev/demo default active; prod defaults inactive until deliberately enabled).
-- **Validation:** offline backtest + paper soak are **soft targets** that guide
-  promotion (decision B) — `19`.
+- **Validation:** soft targets (decision B) in `19`; offline FX harness not wired
+  yet (`cmd/backtester` is EU-only) — paper soak is the practical path until then.
 - **Design:** [`../fx-usdjpy-architecture.md`](../fx-usdjpy-architecture.md).
 
 ## Component specs
@@ -55,7 +55,7 @@ market data to execution, then the supporting services and config, then the FX l
 | 16 | [`16-fx-session-controller.md`](./16-fx-session-controller.md) | Tokyo range lock, 14-day ATR, VWAP, VolMA |
 | 17 | [`17-strategy-fx-trld.md`](./17-strategy-fx-trld.md) | FX TRLD `Analyze()` entry matrix → `Signal` |
 | 18 | [`18-fx-risk-profile.md`](./18-fx-risk-profile.md) | FX account gates: one-trade/day, weekend, spread, news |
-| 19 | [`19-fx-validation-backtest.md`](./19-fx-validation-backtest.md) | Offline harness + soft promotion targets |
+| 19 | [`19-fx-validation-backtest.md`](./19-fx-validation-backtest.md) | Soft-target harness design + promotion guidance |
 
 ## Conventions used in every spec
 

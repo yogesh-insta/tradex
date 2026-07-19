@@ -61,9 +61,8 @@ Mirror: `Close < OpeningLow`, `Close < VWAP`, volume expansion, same spread/rang
   `sl_atr_mult` default 0.5).
 - `TakeProfit` = entry ± `tp_atr_mult × DailyATR` (`tp_atr_mult` default 1.5 → 1:3 R:R).
 - `Policy.BreakevenAtR` = `breakeven_at_r` (default 1.0).
-- `Policy.TimeCutoff` = applicable FX flatten time (Friday NY cutoff from mgmt/risk
-  config; see `18` / trade-management). Soft session cutoff may also set a same-day
-  cutoff when configured.
+- `Policy.TimeCutoff` = **Friday NY hard flatten only** (from mgmt/risk config; see
+  `18`). Non-Friday signals leave `TimeCutoff` zero.
 - `Policy.Trail` = `""` by default; if `trail_after_r > 0` is enabled post-backtest,
   set broker trail id per executor conventions — **v1 default off**.
 - `Reason` = audit string of which conditions fired (range side, VWAP, vol, width band).
@@ -79,14 +78,12 @@ Otherwise return **nil**.
   Enforcement is in risk (`18`: one trade per instrument per session day), not in this
   pure function — the strategy stays **stateless** across calls beyond `SessionState`.
 
-### Soft cutoff hint (management)
+### Soft cutoff (management, not `TimeCutoff`)
 
-When emitting a signal near soft cutoff, `Policy` may carry a `TimeCutoff` for
-“flatten if still open with weak R” — exact underwater flatten (&lt;0.5R at soft cutoff)
-is implemented in trade-management using FX policy keys (`18` / mgmt amendments). The
-strategy always sets `BreakevenAtR` and the hard Friday cutoff time provided by config
-injection at signal build (clock helper), or leaves `TimeCutoff` zero and lets mgmt apply
-account-level Friday flatten.
+Weak-R flatten at soft cutoff (`Asia/Tokyo` 21:00 default, profitR &lt;
+`soft_cutoff_flatten_r`) is owned entirely by trade-management (`18` / mgmt
+`fx_soft_cutoff*`). The strategy must **not** seed `Policy.TimeCutoff` with the soft
+cutoff — that field is unconditional flatten.
 
 ## Config keys
 

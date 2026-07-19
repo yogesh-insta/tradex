@@ -1,0 +1,20 @@
+# Cloud Run image for the economic calendar poller (spec 10).
+# Cloud Scheduler → HTTP /run → Finnhub/Gemini → Telegram → GCS.
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/calendarpoller ./cmd/calendarpoller
+
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY --from=build /out/calendarpoller /app/calendarpoller
+COPY config/config.calendarpoller.cloudrun.yaml /app/config/config.calendarpoller.cloudrun.yaml
+
+EXPOSE 8080
+ENV PORT=8080
+ENTRYPOINT ["/app/calendarpoller"]
+CMD ["--config", "config/config.calendarpoller.cloudrun.yaml"]

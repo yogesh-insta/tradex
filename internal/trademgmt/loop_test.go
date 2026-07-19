@@ -223,13 +223,32 @@ func TestVanishedTradeReported(t *testing.T) {
 	}
 }
 
-func TestDisabledStateStopsManagement(t *testing.T) {
+func TestDisabledStateStillManagesPartialFlatten(t *testing.T) {
+	// DISABLED after FLATTEN must keep applying BE / close retries until flat.
 	f := newFakeExec(longTrade())
 	d := &deps{price: 24060, news: calendar.NoImminent, state: types.StateDisabled, now: time.Now()}
 	l := newLoop(f, d, time.Hour)
 	l.Pass(context.Background())
-	if len(f.modifies) != 0 || len(f.closes) != 0 {
-		t.Fatal("disabled state must not manage trades")
+	if len(f.modifies) != 1 {
+		t.Fatal("disabled state must still manage remaining open trades")
+	}
+}
+
+func TestNoteOpenVisibleToRiskBeforeReconcile(t *testing.T) {
+	f := newFakeExec()
+	d := &deps{price: 24000, news: calendar.NoImminent, state: types.StateActive, now: time.Now()}
+	l := newLoop(f, d, time.Hour)
+	tr := longTrade()
+	l.NoteOpen(tr)
+	got := l.OpenTrades()
+	if len(got) != 1 || got[0].TradeID != "t1" {
+		t.Fatalf("OpenTrades after NoteOpen = %+v", got)
+	}
+	// Reconcile with empty broker list within grace must not vanish.
+	l.Pass(context.Background())
+	got = l.OpenTrades()
+	if len(got) != 1 || got[0].TradeID != "t1" {
+		t.Fatalf("grace keep failed: %+v", got)
 	}
 }
 
@@ -240,5 +259,24 @@ func TestPausedStateStillManages(t *testing.T) {
 	l.Pass(context.Background())
 	if len(f.modifies) != 1 {
 		t.Fatal("paused trades must still be managed to their exit (spec 09)")
+	}
+}
+
+func TestFXSoftCutoffUsesInitialRiskAfterBreakeven(t *testing.T) {
+	tr := longTrade()
+	tr.CurrentSL = tr.Entry // reconciled after a restart with BE already applied
+	f := newFakeExec(tr)
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC) // Monday, after cutoff
+	d := &deps{price: 24015, news: calendar.NoImminent, state: types.StateActive, now: now}
+	l := newLoop(f, d, time.Hour).WithFX(FXConfig{
+		Enabled:            true,
+		SoftCutoffTZ:       time.UTC,
+		SoftCutoff:         "11:00:00",
+		SoftCutoffFlattenR: 0.5,
+	})
+
+	l.Pass(context.Background())
+	if len(f.closes) != 1 || f.closes[0] != tr.TradeID {
+		t.Fatalf("closes = %+v, want [%s]", f.closes, tr.TradeID)
 	}
 }

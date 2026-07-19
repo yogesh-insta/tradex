@@ -29,7 +29,7 @@ func (a *fakeAccount) ConsecutiveLosses() int   { return a.consecLosses }
 type harness struct {
 	account *fakeAccount
 	state   types.SystemState
-	locked  string // ForceLock reason, "" = not called
+	locked  string // account lock reason, "" = not called
 	stale   bool
 	news    time.Duration
 	open    []types.OpenTrade
@@ -66,13 +66,47 @@ func testRiskConfig() config.RiskConfig {
 func (h *harness) engine(cfg config.RiskConfig) *Engine {
 	return NewEngine(cfg, h.account, "EU", Deps{
 		SystemState: func() types.SystemState { return h.state },
-		ForceLock:   func(reason string) { h.locked = reason },
-		Stale:       func(string, time.Time) bool { return h.stale },
-		TimeToNews:  func(string, time.Time) time.Duration { return h.news },
-		OpenTrades:  func() []types.OpenTrade { return h.open },
-		Meta:        func(string) (execution.InstrumentMeta, error) { return h.meta, nil },
-		Price:       func(string) float64 { return h.price },
+		AccountLock: func(account string) (bool, string) {
+			return account == h.account.name && h.locked != "", h.locked
+		},
+		ForceLockAccount: func(account, reason string) {
+			if account == h.account.name {
+				h.locked = reason
+			}
+		},
+		Stale:      func(string, time.Time) bool { return h.stale },
+		TimeToNews: func(string, time.Time) time.Duration { return h.news },
+		OpenTrades: func() []types.OpenTrade { return h.open },
+		Meta:       func(string) (execution.InstrumentMeta, error) { return h.meta, nil },
+		Price:      func(string) float64 { return h.price },
 	})
+}
+
+func TestAccountLockRejectsOnlyItsOwnRiskEngine(t *testing.T) {
+	locked := map[string]string{"eu": ReasonDailyLossBreaker}
+	newEngine := func(name string) *Engine {
+		h := defaultHarness()
+		h.account.name = name
+		return NewEngine(testRiskConfig(), h.account, "EU", Deps{
+			SystemState: func() types.SystemState { return types.StateActive },
+			AccountLock: func(account string) (bool, string) {
+				reason, ok := locked[account]
+				return ok, reason
+			},
+			ForceLockAccount: func(account, reason string) { locked[account] = reason },
+			Stale:            func(string, time.Time) bool { return false },
+			TimeToNews:       func(string, time.Time) time.Duration { return calendar.NoImminent },
+			OpenTrades:       func() []types.OpenTrade { return nil },
+			Meta:             func(string) (execution.InstrumentMeta, error) { return h.meta, nil },
+			Price:            func(string) float64 { return h.price },
+		})
+	}
+	if _, err := newEngine("eu").Evaluate(longSignal(), time.Now()); rejectionReason(t, err) != ReasonDailyLossBreaker {
+		t.Fatal("locked EU account was accepted")
+	}
+	if _, err := newEngine("fx").Evaluate(longSignal(), time.Now()); err != nil {
+		t.Fatalf("unlocked FX account rejected: %v", err)
+	}
 }
 
 // longSignal: entry 100, SL 95 (5-point stop), TP 115.
@@ -234,6 +268,36 @@ func TestSizing(t *testing.T) {
 		}
 		if req.Units != -10 {
 			t.Fatalf("units = %g, want -10", req.Units)
+		}
+	})
+
+	t.Run("USD JPY sizing uses account-currency pip value", func(t *testing.T) {
+		h := defaultHarness()
+		h.meta = execution.InstrumentMeta{
+			Symbol: "USD_JPY", PipLocation: -2, UnitsPrecision: 0, MinUnits: 1,
+			PointValue: 0.01 / 150,
+		}
+		h.price = 150
+		cfg := testRiskConfig()
+		cfg.MaxMarginFrac = 1
+		cfg.MaxLeverage = 1_000
+		eng := h.engine(cfg)
+		sig := longSignal()
+		sig.Instrument = "USD_JPY"
+		sig.EntryPrice, sig.StopLoss, sig.TakeProfit = 150, 149.5, 151
+		req, err := eng.Evaluate(sig, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Floor-to-unit sizing can round 15,000 down by one because the pip
+		// conversion is fractional.
+		if req.Units != 14_999 {
+			t.Fatalf("units = %g, want 14999", req.Units)
+		}
+		// 14,999 USD × 0.50 JPY / 150 JPY/USD is just below 50 USD.
+		loss := float64(req.Units) * math.Abs(sig.EntryPrice-sig.StopLoss) / h.price
+		if math.Abs(loss-50) > 0.01 {
+			t.Fatalf("stop-out loss = %.4f, want approximately 50.00", loss)
 		}
 	})
 

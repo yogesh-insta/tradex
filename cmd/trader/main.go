@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -208,7 +209,6 @@ func run() error {
 				EntryWindowEnd:   cfg.Strategies.FXTRLD.EntryWindowEnd,
 				FridayCutoff:     firstNonEmpty(cfg.Mgmt.FXFridayCutoff, cfg.FXRisk.FridayHardFlatten),
 				FridayCutoffLoc:  ny,
-				SoftCutoff:       firstNonEmpty(cfg.Mgmt.FXSoftCutoff, cfg.FXSession.SoftCutoff),
 				TrailAfterR:      cfg.Strategies.FXTRLD.TrailAfterR,
 				Location:         fxLoc,
 			})
@@ -266,13 +266,14 @@ func run() error {
 
 		var loop *trademgmt.Loop
 		eng := risk.NewEngine(pm.RiskConfig(ac.Name), acct, newsRegion, risk.Deps{
-			SystemState: machine.State,
-			ForceLock:   machine.ForceLock,
-			Stale:       consumer.Stale,
-			TimeToNews:  timeToNews,
-			OpenTrades:  func() []types.OpenTrade { return loop.OpenTrades() },
-			Meta:        exec.Instrument,
-			Price:       snapshot.Mid,
+			SystemState:      machine.State,
+			AccountLock:      machine.AccountLock,
+			ForceLockAccount: machine.ForceLockAccount,
+			Stale:            consumer.Stale,
+			TimeToNews:       timeToNews,
+			OpenTrades:       func() []types.OpenTrade { return loop.OpenTrades() },
+			Meta:             exec.Instrument,
+			Price:            snapshot.Mid,
 		})
 		if ac.Strategy == fxtrld.Name {
 			fxLoc := time.UTC
@@ -318,8 +319,16 @@ func run() error {
 			OnVanished:  settle,
 		}, log.With("account", ac.Name))
 		if ac.Strategy == fxtrld.Name {
-			softTZ, _ := time.LoadLocation(firstNonEmpty(cfg.Mgmt.FXSoftCutoffTZ, "Asia/Tokyo"))
-			friTZ, _ := time.LoadLocation(firstNonEmpty(cfg.Mgmt.FXFridayCutoffTZ, "America/New_York"))
+			softTZName := firstNonEmpty(cfg.Mgmt.FXSoftCutoffTZ, "Asia/Tokyo")
+			friTZName := firstNonEmpty(cfg.Mgmt.FXFridayCutoffTZ, "America/New_York")
+			softTZ, err := time.LoadLocation(softTZName)
+			if err != nil {
+				return fmt.Errorf("mgmt.fx_soft_cutoff_tz %q: %w", softTZName, err)
+			}
+			friTZ, err := time.LoadLocation(friTZName)
+			if err != nil {
+				return fmt.Errorf("mgmt.fx_friday_cutoff_tz %q: %w", friTZName, err)
+			}
 			loop.WithFX(trademgmt.FXConfig{
 				Enabled:            true,
 				NewsUnderwaterFlat: true,
@@ -334,6 +343,11 @@ func run() error {
 	}
 
 	// --- boot recovery: equity, candles backfill, session state ---
+	fxSessionLoc := time.UTC
+	if fxSess != nil {
+		fxSessionLoc = fxSess.Location()
+	}
+	accountSessionLocs := accountSessionLocations(pm, euSess.Location(), fxSessionLoc)
 	for _, ac := range cfg.Accounts {
 		if !ac.Active {
 			continue
@@ -341,6 +355,9 @@ func run() error {
 		acct, _ := pm.Account(ac.Name)
 		if err := refreshEquity(ctx, executors[ac.Name], acct); err != nil {
 			return fmt.Errorf("boot: account %s equity: %w", ac.Name, err)
+		}
+		if err := restoreDailyRisk(ctx, client, ac.OANDAID, acct, engines[ac.Name], accountSessionLocs[ac.Name], time.Now()); err != nil {
+			return fmt.Errorf("boot: account %s daily risk recovery: %w", ac.Name, err)
 		}
 	}
 	if err := builder.Backfill(ctx); err != nil {
@@ -394,7 +411,7 @@ func run() error {
 			case <-ctx.Done():
 				return
 			case ev := <-builder.Events():
-				handleEvent(ctx, ev, sessHub, snapshot, router, pm, engines, executors, log, mets)
+				handleEvent(ctx, ev, sessHub, snapshot, router, pm, engines, executors, loops, log, mets)
 			}
 		}
 	}()
@@ -429,9 +446,14 @@ func run() error {
 			}
 			return errors.Join(errs...)
 		},
-		ReArm: func(ctx context.Context) error {
+		ReArm: func(ctx context.Context, names []string) error {
 			var errs []error
-			for _, acct := range pm.Accounts() {
+			for _, name := range names {
+				acct, ok := pm.Account(name)
+				if !ok {
+					errs = append(errs, fmt.Errorf("re-arm: unknown account %s", name))
+					continue
+				}
 				if err := refreshEquity(ctx, executors[acct.Name()], acct); err != nil {
 					errs = append(errs, err)
 					continue
@@ -443,15 +465,23 @@ func run() error {
 		Status: func(ctx context.Context) any {
 			accounts := map[string]any{}
 			for _, acct := range pm.Accounts() {
+				locked, lockReason := machine.AccountLock(acct.Name())
 				accounts[acct.Name()] = map[string]any{
 					"equity":             acct.Equity(),
 					"baseline_equity":    acct.BaselineEquity(),
 					"daily_realized_pl":  acct.DailyRealizedPL(),
 					"consecutive_losses": acct.ConsecutiveLosses(),
 					"open_trades":        loops[acct.Name()].OpenTrades(),
+					"locked":             locked,
+					"lock_reason":        lockReason,
 				}
 			}
-			return map[string]any{"state": machine.State(), "accounts": accounts, "metrics": mets.Snapshot()}
+			return map[string]any{
+				"state":         machine.State(),
+				"account_locks": machine.LockedAccounts(),
+				"accounts":      accounts,
+				"metrics":       mets.Snapshot(),
+			}
 		},
 	}, controlplane.AuthConfig{
 		Secret:   []byte(cfg.ControlPlane.Auth.Secret),
@@ -492,7 +522,7 @@ func run() error {
 	})
 	sched.Add(scheduler.Job{
 		Name: "daily_baseline", Interval: time.Minute,
-		Fn: newDailyBaselineJob(pm, euSess, log),
+		Fn: newDailyBaselineJob(pm, accountSessionLocs, log),
 	})
 	sched.Add(scheduler.Job{
 		Name: "heartbeat", Interval: cfg.Observability.HeartbeatInterval.D(), RunAtStart: true,
@@ -528,7 +558,7 @@ func run() error {
 func handleEvent(ctx context.Context, ev types.MarketEvent,
 	sess *session.Hub, snap *marketdata.Snapshot, router *strategy.Router, pm *portfolio.Manager,
 	engines map[string]*risk.Engine, executors map[string]*execution.OANDAExecutor,
-	log *slog.Logger, mets *metrics.Memory) {
+	loops map[string]*trademgmt.Loop, log *slog.Logger, mets *metrics.Memory) {
 
 	sess.OnCandle(ev)
 	if ev.Timeframe != types.M5 {
@@ -566,6 +596,11 @@ func handleEvent(ctx context.Context, ev types.MarketEvent,
 		log.Error("order failed", "instrument", sig.Instrument, "error", err)
 		mets.Inc("order_failures")
 		return
+	}
+	// Register fill before the next instrument's M5 event is evaluated so
+	// correlation / max_concurrent / already_open see broker truth in-process.
+	if loop := loops[acct.Name()]; loop != nil {
+		loop.NoteOpen(trade)
 	}
 	eng.MarkAccepted(*sig, now)
 	mets.Inc("orders_opened")
@@ -616,20 +651,100 @@ func refreshEquity(ctx context.Context, exec *execution.OANDAExecutor, acct *por
 	return nil
 }
 
-// newDailyBaselineJob snapshots the per-account daily baseline once per local
-// session day (the daily P&L reference; RE_ARM snapshots explicitly).
-func newDailyBaselineJob(pm *portfolio.Manager, sess *session.Controller, log *slog.Logger) func(context.Context) error {
-	lastDay := ""
+type transactionHistory interface {
+	Transactions(context.Context, string, time.Time, time.Time) (oanda.TransactionsResponse, error)
+}
+
+// restoreDailyRisk rebuilds per-account risk counters from fills since the
+// account's session-day boundary before any entry path starts. A recovered
+// breaker locks only that account's entry lane, so an EU breach cannot block FX.
+func restoreDailyRisk(ctx context.Context, history transactionHistory, accountID string,
+	acct *portfolio.Account, eng *risk.Engine, sessionLoc *time.Location, now time.Time) error {
+	if sessionLoc == nil {
+		sessionLoc = time.UTC
+	}
+	local := now.In(sessionLoc)
+	dayStart := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, sessionLoc)
+	resp, err := history.Transactions(ctx, accountID, dayStart, now.UTC())
+	if err != nil {
+		return err
+	}
+	sort.SliceStable(resp.Transactions, func(i, j int) bool {
+		return resp.Transactions[i].Time.Before(resp.Transactions[j].Time)
+	})
+
+	var realized float64
+	consecutiveLosses := 0
+	for _, tx := range resp.Transactions {
+		if tx.Type != "ORDER_FILL" {
+			continue
+		}
+		pl := float64(tx.PL)
+		realized += pl
+		if pl < 0 {
+			consecutiveLosses++
+		} else if pl > 0 {
+			consecutiveLosses = 0
+		}
+	}
+	acct.RestoreDaily(realized, consecutiveLosses)
+	eng.CheckBreakers()
+	return nil
+}
+
+// accountSessionLocations assigns each account its strategy's session-day
+// timezone: EU uses Europe/Berlin and FX uses Asia/Tokyo.
+func accountSessionLocations(pm *portfolio.Manager, euLoc, fxLoc *time.Location) map[string]*time.Location {
+	locations := make(map[string]*time.Location, len(pm.Accounts()))
+	for _, acct := range pm.Accounts() {
+		loc := euLoc
+		if pm.StrategyOf(acct.Name()) == fxtrld.Name {
+			loc = fxLoc
+		}
+		if loc == nil {
+			loc = time.UTC
+		}
+		locations[acct.Name()] = loc
+	}
+	return locations
+}
+
+// newDailyBaselineJob snapshots each account's daily baseline once per its
+// strategy's local session day (the daily P&L reference; RE_ARM snapshots
+// explicitly).
+func newDailyBaselineJob(pm *portfolio.Manager, locations map[string]*time.Location, log *slog.Logger) func(context.Context) error {
+	return newDailyBaselineJobAt(pm, locations, log, time.Now)
+}
+
+func newDailyBaselineJobAt(pm *portfolio.Manager, locations map[string]*time.Location, log *slog.Logger,
+	now func() time.Time) func(context.Context) error {
+	// Boot recovery has already restored today's counters and baseline. Starting
+	// on each account's current day prevents this job's first tick from wiping
+	// that account's restored state.
+	lastDay := map[string]string{}
+	current := now()
+	for _, acct := range pm.Accounts() {
+		loc := locations[acct.Name()]
+		if loc == nil {
+			loc = time.UTC
+		}
+		lastDay[acct.Name()] = current.In(loc).Format("2006-01-02")
+	}
 	return func(context.Context) error {
-		day := time.Now().In(sess.Location()).Format("2006-01-02")
-		if day == lastDay {
-			return nil
-		}
-		lastDay = day
+		current := now()
 		for _, acct := range pm.Accounts() {
+			loc := locations[acct.Name()]
+			if loc == nil {
+				loc = time.UTC
+			}
+			day := current.In(loc).Format("2006-01-02")
+			if day == lastDay[acct.Name()] {
+				continue
+			}
+			lastDay[acct.Name()] = day
 			acct.SnapshotBaseline()
+			log.Info("daily baseline snapshotted", "account", acct.Name(), "day", day, "tz", loc)
 		}
-		log.Info("daily baseline snapshotted", "day", day)
 		return nil
 	}
 }

@@ -1,0 +1,23 @@
+# Cloud Run calendarpoller — minimal config (no OANDA / control-plane secrets).
+# Triggered by Cloud Scheduler every 2 hours. Writes gs://tradex-demo-state/calendar-state.json.
+env: "demo"
+project: "fxtrade-prod-12345"
+
+calendar:
+  economic:
+    provider: "gcs" # unused by poller; documents the trader read path
+    fallback_provider: "gemini"
+    gemini_model: "gemini-2.5-flash-lite"
+    poll_interval: 2h
+    lookahead_days: 7
+    local_file: "" # Cloud Run is ephemeral; GCS is the durable store
+    gcs_object: "gs://tradex-demo-state/calendar-state.json"
+    high_impact_only: true
+    regions: ["EU", "US", "JP"]
+    telegram_review: true
+    auto_write_on_telegram_ok: true
+
+observability:
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"

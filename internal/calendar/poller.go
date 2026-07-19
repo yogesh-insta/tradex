@@ -8,12 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"cloud.google.com/go/storage"
 )
 
 // PollerConfig configures one Finnhub → Gemini → Telegram → durable write run.
 type PollerConfig struct {
 	LookaheadDays         int
-	LocalFile             string // durable calendar-state.json path
+	LocalFile             string // optional local calendar-state.json path
+	GCSObject             string // optional gs://bucket/object
 	TelegramReview        bool
 	AutoWriteOnTelegramOK bool
 	GeminiModel           string
@@ -24,8 +27,10 @@ type PollerDeps struct {
 	Finnhub  *FinnhubClient
 	Gemini   *GeminiClient
 	Telegram *TelegramClient
-	Log      *slog.Logger
-	Now      func() time.Time
+	// GCS optional; required when PollerConfig.GCSObject is set.
+	GCS *storage.Client
+	Log *slog.Logger
+	Now func() time.Time
 }
 
 // Result summarizes one poller run.
@@ -50,7 +55,7 @@ func Run(ctx context.Context, cfg PollerConfig, deps PollerDeps) (Result, error)
 	if cfg.LookaheadDays <= 0 {
 		cfg.LookaheadDays = 7
 	}
-	if cfg.LocalFile == "" {
+	if cfg.LocalFile == "" && cfg.GCSObject == "" {
 		cfg.LocalFile = "data/calendar-state.json"
 	}
 
@@ -110,11 +115,23 @@ func Run(ctx context.Context, cfg PollerConfig, deps PollerDeps) (Result, error)
 	wrote := false
 	shouldWrite := !cfg.TelegramReview || cfg.AutoWriteOnTelegramOK
 	if shouldWrite {
-		if err := WriteStateFile(cfg.LocalFile, state); err != nil {
-			return Result{Source: source, State: state}, fmt.Errorf("calendar poller: write durable state: %w", err)
+		if cfg.LocalFile != "" {
+			if err := WriteStateFile(cfg.LocalFile, state); err != nil {
+				return Result{Source: source, State: state}, fmt.Errorf("calendar poller: write local state: %w", err)
+			}
+			wrote = true
+			log.Info("wrote durable calendar state", "path", cfg.LocalFile, "as_of", state.AsOf, "events", len(state.Events))
 		}
-		wrote = true
-		log.Info("wrote durable calendar state", "path", cfg.LocalFile, "as_of", state.AsOf, "events", len(state.Events))
+		if cfg.GCSObject != "" {
+			if deps.GCS == nil {
+				return Result{Source: source, State: state}, fmt.Errorf("calendar poller: gcs_object set but GCS client is nil")
+			}
+			if err := WriteStateGCS(ctx, deps.GCS, cfg.GCSObject, state); err != nil {
+				return Result{Source: source, State: state}, fmt.Errorf("calendar poller: write gcs state: %w", err)
+			}
+			wrote = true
+			log.Info("wrote durable calendar state", "gcs", cfg.GCSObject, "as_of", state.AsOf, "events", len(state.Events))
+		}
 	}
 
 	return Result{Source: source, State: state, Wrote: wrote}, nil

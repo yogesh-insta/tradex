@@ -210,7 +210,7 @@ Per **FX account** (unified risk module, FX config profile):
 | Daily hard lock | config USD loss (sized to account) |
 | Consecutive loss halt | 3 |
 | One trade / day / instrument | hard |
-| Kill switch | `SYSTEM_LOCKED` until signed `RE_ARM` |
+| Kill switch | FX account lock until signed `RE_ARM` |
 | Margin / leverage gate | scale down units if margin &gt; cap |
 
 EU and FX accounts never share margin or daily P&L baselines.
@@ -231,12 +231,15 @@ flowchart LR
 ```
 
 **Soft targets (decision B):** offline backtest metrics and paper soak **guide**
-promotion; they are **not** a hard live blocker. Still required as evidence:
+promotion; they are **not** a hard live blocker. Desired evidence (spec 19):
 
 1. Replay harness using the same `MarketEvent` + `SessionState` contracts as live
 2. Cost model: spread + slippage
 3. Walk-forward or out-of-sample holdout
 4. Event-day stress report (FOMC / BOJ weeks)
+
+**Status:** `cmd/backtester` is EU-only today. Until the FX harness is wired, treat
+paper soak on the FX `fxpractice` account as the practical validation path.
 
 Normative soft targets: [`19-fx-validation-backtest.md`](./specs/19-fx-validation-backtest.md).
 
@@ -250,7 +253,7 @@ Normative soft targets: [`19-fx-validation-backtest.md`](./specs/19-fx-validatio
 | 16 | [`16-fx-session-controller.md`](./specs/16-fx-session-controller.md) | Tokyo range, ATR, VWAP, windows |
 | 17 | [`17-strategy-fx-trld.md`](./specs/17-strategy-fx-trld.md) | **Profit core** — matrices, filters, signal |
 | 18 | [`18-fx-risk-profile.md`](./specs/18-fx-risk-profile.md) | Sizing, gates, weekend/news vs EU |
-| 19 | [`19-fx-validation-backtest.md`](./specs/19-fx-validation-backtest.md) | Harness + go-live gates |
+| 19 | [`19-fx-validation-backtest.md`](./specs/19-fx-validation-backtest.md) | Soft-target harness design + promotion guidance |
 
 Write/read order for implementers: **17 → 16 → 18 → 19**, with 15 as the lane charter.
 

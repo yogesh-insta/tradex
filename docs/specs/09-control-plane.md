@@ -9,31 +9,35 @@ executes operational commands (`FLATTEN`, `PAUSE`, `RESUME`, `RE_ARM`).
 ## Inputs
 
 - HTTPS `POST` to the VM on **:8443**, `application/json`, **HMAC-signed** (see Auth).
-- Internal triggers: risk breaker (daily loss / consecutive loss) forces `SYSTEM_LOCKED`.
+- Internal triggers: risk breaker (daily loss / consecutive loss) locks only the breached
+  account. Operator commands remain process-wide.
 
 ## Outputs
 
 - State transitions (in RAM, authoritative for the process).
-- Executor calls (`Close`, `CancelOrder`), controller pause/resume flags.
-- Telegram confirmation of each accepted command (outbound).
+- Executor calls (`Close`, `CancelOrder`) on flatten / re-arm paths.
+- JSON response with current `SystemState` (and `STATUS` detail).
+- **Deferred:** Telegram confirmation of each accepted command (trade/session Telegram
+  notifier is deferred — see `12-observability-and-alerts.md`).
 
 ## State machine
 
 ```text
         PAUSE                         RESUME
 ACTIVE ───────► PAUSED ───────────────────► ACTIVE
-  │  ▲                                         ▲
-  │  │ RE_ARM (signed)                         │
-  │  └─────────────── SYSTEM_LOCKED ◄──────────┘  (breaker: daily/consecutive loss)
-  │        FLATTEN                              (RE_ARM is the ONLY exit)
-  └───────────────────► DISABLED  ◄── FLATTEN from any state
+  │                                             ▲
+  └───────────────────► DISABLED  ─────────────┘  RE_ARM
+       FLATTEN from any state
+
+Risk breaker: account ACTIVE → account LOCKED → account ACTIVE (signed RE_ARM).
 ```
 
 - `ACTIVE` — normal trading.
-- `PAUSED` — per-market controllers asleep; **open positions untouched** (brackets +
-  management still protect them). New entries suppressed.
-- `SYSTEM_LOCKED` — hard lock after a breaker; **no new entries**; managed positions keep
-  broker stops. **No automatic midnight re-arm.** Exit only via signed `RE_ARM`.
+- `PAUSED` — **process-wide** (v1): risk rejects new entries on all accounts;
+  **open positions untouched** (brackets + management still protect them).
+- `SYSTEM_LOCKED` — legacy/manual process-wide hard lock; **no new entries**. Risk
+  breakers instead use account locks, so an EU breaker does not stop FX and vice versa.
+  Managed positions keep broker stops. **No automatic midnight re-arm.**
 - `DISABLED` — post-`FLATTEN`: everything blocked; requires operator action to resume.
 
 ## Commands
@@ -41,10 +45,10 @@ ACTIVE ───────► PAUSED ─────────────�
 | Command | Effect |
 | --- | --- |
 | `FLATTEN` | Block all strategy channels → `DELETE` all resting orders → market-`Close` all open trades → state `DISABLED`. Emergency stop. |
-| `PAUSE {market?}` | Sleep the named market controller(s) (default all EU). Positions untouched. → `PAUSED`. |
-| `RESUME {market?}` | Wake controller(s). → `ACTIVE` (if not locked/disabled). |
-| `RE_ARM` | Only exit from `SYSTEM_LOCKED`: reset daily-loss tracker, **snapshot new baseline equity**, → `ACTIVE`. |
-| `STATUS` | Return current state, open trades, daily P&L, baseline equity (read-only). |
+| `PAUSE` | Process-wide pause → `PAUSED`. Positions untouched. (Per-market pause is future.) |
+| `RESUME` | Wake process → `ACTIVE` (if not locked/disabled). |
+| `RE_ARM` | Clear all breaker-locked accounts, snapshot each affected account's new baseline equity; also exits legacy `SYSTEM_LOCKED`/`DISABLED` → `ACTIVE`. |
+| `STATUS` | Return process state plus per-account open trades, daily P&L, baseline equity, `locked`, and `lock_reason` (read-only). |
 
 ## Auth (HMAC over TLS)
 
@@ -73,16 +77,16 @@ control_plane:
 | --- | --- |
 | Invalid signature / replay | 401, log + alert, no state change |
 | `FLATTEN` partial (some closes fail) | Retry failed closes; stay `DISABLED`; alert until flat |
-| `RE_ARM` while not locked | No-op with explicit response (idempotent) |
+| `RE_ARM` while no account/global lock exists | No-op with explicit response (idempotent) |
 | Webhook unreachable | Breaker still works internally; operator falls back to OANDA console |
-| Process restart | State rebuilt: if daily loss already breached from ledger/account → boot into `SYSTEM_LOCKED` |
+| Process restart | State rebuilt: if a daily/consecutive breaker is breached from ledger/account → lock that account only |
 
 ## Acceptance criteria
 
 - A correctly-signed `FLATTEN` cancels all resting orders and closes all trades, ending
   in `DISABLED`; an unsigned/replayed request is rejected with no effect.
-- Hitting −$150 realized loss transitions to `SYSTEM_LOCKED`; no entry is accepted until a
-  signed `RE_ARM`, which snapshots a fresh baseline equity.
+- Hitting −$150 realized loss locks the breached account; its entries remain rejected until
+  a signed `RE_ARM`, which snapshots a fresh baseline equity without blocking other accounts.
 - `PAUSE` stops new EU entries while an open trade continues to be managed to its exit.
 - State survives restart consistently with account/ledger reality.
 

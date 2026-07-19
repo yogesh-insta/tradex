@@ -37,5 +37,7 @@ type InstrumentMeta struct {
 	UnitsPrecision int     // decimal places for trade units (OANDA tradeUnitsPrecision)
 	MinUnits       float64 // OANDA minimumTradeSize (0.1 for index CFDs)
 	MarginRate     float64
-	PointValue     float64 // account-currency value per 1.0 price point per unit
+	// PointValue is the account-currency value of one pip (10^PipLocation)
+	// per trade unit.
+	PointValue float64
 }

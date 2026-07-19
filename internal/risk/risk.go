@@ -56,8 +56,10 @@ type AccountState interface {
 // Deps are the pull-based inputs to the gate chain. All are required.
 type Deps struct {
 	SystemState func() types.SystemState
-	// ForceLock trips the breaker → SYSTEM_LOCKED (control plane owns re-arm).
-	ForceLock func(reason string)
+	// AccountLock reports the breaker lock for this engine's account.
+	AccountLock func(account string) (locked bool, reason string)
+	// ForceLockAccount trips the breaker for only this engine's account.
+	ForceLockAccount func(account, reason string)
 	// Stale reports market-data staleness for the instrument during session.
 	Stale func(instrument string, now time.Time) bool
 	// TimeToNews returns time until the next high-impact event for a region
@@ -90,53 +92,57 @@ func NewEngine(cfg config.RiskConfig, account AccountState, region string, deps 
 func (e *Engine) Evaluate(sig types.Signal, now time.Time) (types.OrderRequest, error) {
 	var zero types.OrderRequest
 
-	// 1. System state.
+	// 1. Process-wide state.
 	if st := e.deps.SystemState(); st != types.StateActive {
 		return zero, &Rejection{Reason: ReasonSystemNotActive, Detail: string(st)}
 	}
-	// 2. Kill/breaker: daily loss.
+	// 2. Account-scoped breaker lock.
+	if locked, reason := e.deps.AccountLock(e.account.Name()); locked {
+		return zero, &Rejection{Reason: reason, Detail: "account locked; RE_ARM required"}
+	}
+	// 3. Kill/breaker: daily loss.
 	if !e.account.EquityKnown() {
 		return zero, &Rejection{Reason: ReasonAccountStateUnknown}
 	}
 	if e.account.DailyRealizedPL() <= -e.cfg.DailyLossLimit {
-		e.deps.ForceLock(ReasonDailyLossBreaker)
+		e.deps.ForceLockAccount(e.account.Name(), ReasonDailyLossBreaker)
 		return zero, &Rejection{Reason: ReasonDailyLossBreaker,
 			Detail: fmt.Sprintf("realized %.2f <= -%.2f", e.account.DailyRealizedPL(), e.cfg.DailyLossLimit)}
 	}
-	// 3. Data health.
+	// 4. Data health.
 	if e.deps.Stale(sig.Instrument, now) {
 		return zero, &Rejection{Reason: ReasonStaleMarketData}
 	}
-	// 4. News window (fail-safe: unknown calendar => 0 => blackout).
+	// 5. News window (fail-safe: unknown calendar => 0 => blackout).
 	if e.deps.TimeToNews(e.region, now) <= e.cfg.NewsBlockBefore.D() {
 		return zero, &Rejection{Reason: ReasonNewsBlackout}
 	}
 	open := e.deps.OpenTrades()
-	// 5. Concurrency per instrument.
+	// 6. Concurrency per instrument.
 	for _, t := range open {
 		if t.Instrument == sig.Instrument {
 			return zero, &Rejection{Reason: ReasonAlreadyOpen, Detail: t.TradeID}
 		}
 	}
-	// 5b. FX: one trade / Tokyo session day (before correlation — single-instrument lane).
+	// 6b. FX: one trade / Tokyo session day (before correlation — single-instrument lane).
 	if err := e.evaluateFXGates(sig, now); err != nil {
 		return zero, err
 	}
-	// 6. Correlation guard.
+	// 7. Correlation guard.
 	if inst := e.correlatedOpen(sig.Instrument, open); inst != "" {
 		return zero, &Rejection{Reason: ReasonCorrelatedOpen, Detail: inst}
 	}
-	// 7. Max concurrent.
+	// 8. Max concurrent.
 	if len(open) >= e.cfg.MaxConcurrent {
 		return zero, &Rejection{Reason: ReasonMaxConcurrent, Detail: fmt.Sprintf("%d open", len(open))}
 	}
-	// 8. Consecutive losses.
+	// 9. Consecutive losses.
 	if e.account.ConsecutiveLosses() >= e.cfg.ConsecutiveLossHalt {
-		e.deps.ForceLock(ReasonConsecutiveLossHalt)
+		e.deps.ForceLockAccount(e.account.Name(), ReasonConsecutiveLossHalt)
 		return zero, &Rejection{Reason: ReasonConsecutiveLossHalt,
 			Detail: fmt.Sprintf("%d consecutive losses", e.account.ConsecutiveLosses())}
 	}
-	// 9. Sizing.
+	// 10. Sizing.
 	units, err := e.size(sig)
 	if err != nil {
 		return zero, err
@@ -238,11 +244,11 @@ func (e *Engine) CheckBreakers() {
 		return
 	}
 	if e.account.DailyRealizedPL() <= -e.cfg.DailyLossLimit {
-		e.deps.ForceLock(ReasonDailyLossBreaker)
+		e.deps.ForceLockAccount(e.account.Name(), ReasonDailyLossBreaker)
 		return
 	}
 	if e.account.ConsecutiveLosses() >= e.cfg.ConsecutiveLossHalt {
-		e.deps.ForceLock(ReasonConsecutiveLossHalt)
+		e.deps.ForceLockAccount(e.account.Name(), ReasonConsecutiveLossHalt)
 	}
 }
 

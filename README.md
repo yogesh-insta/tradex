@@ -33,7 +33,7 @@ internal/strategy/     Strategy interface + registry + 1:1 router; eulove/ + fxt
 internal/risk/         gate chain (spec order) + sizing + FX gates + margin/leverage
 internal/execution/    OrderExecutor interface + OANDA impl (bracketed orders, idempotency)
 internal/trademgmt/    2s timer loop: breakeven, time-cutoff, news flatten (level-triggered)
-internal/controlplane/ HMAC webhook :8443 + ACTIVE/PAUSED/SYSTEM_LOCKED/DISABLED machine
+internal/controlplane/ HMAC webhook :8443 + global pause/flatten state + account breaker locks
 internal/calendar/     economic-calendar cache + poller pipeline + trading-holiday file
 internal/portfolio/    accounts → instrument groups → strategies; per-account P&L state
 internal/scheduler/    ticker-based housekeeping (calendar refresh, reconcile) — NOT signals
@@ -72,7 +72,8 @@ export TELEGRAM_CHAT_ID="..."
 #    config.dev.yaml has eu-indices + fx-usdjpy active by default
 go run ./cmd/trader --config config/config.dev.yaml
 
-# 4. Run a backtest (downloads + caches OANDA candles as CSV)
+# 4. Run an EU backtest (downloads + caches OANDA candles as CSV)
+#    FX offline harness is specified in docs/specs/19 but not wired yet
 go run ./cmd/backtester --config config/config.dev.yaml \
   --instrument DE30_EUR --from 2026-05-01 --to 2026-07-01
 
@@ -99,8 +100,10 @@ drawdown, and writes an equity-curve CSV to `out/`. Cached candles land in
 | `config.prod.yaml` | `active: false` | Flip deliberately before live FX |
 
 Registry / signal strategy key is always `fx_trld` (not `FX_TRLD`). Soft validation
-targets (offline backtest + paper soak) guide promotion — see
+targets (offline backtest + paper soak) **guide** promotion (Decision B) — see
 [`docs/specs/19-fx-validation-backtest.md`](docs/specs/19-fx-validation-backtest.md).
+`cmd/backtester` is EU-only today; FX paper soak on `fxpractice` is the practical
+check until the FX harness ships.
 
 ### Control plane
 
@@ -114,8 +117,8 @@ curl -sk -X POST "https://VM_IP:8443/command" -H "X-Signature: $sig" -d "$body"
 ```
 
 Commands: `FLATTEN` (cancel all orders, close all trades → `DISABLED`),
-`PAUSE` / `RESUME`, `RE_ARM` (only exit from `SYSTEM_LOCKED`; snapshots a new
-baseline equity), `STATUS`.
+`PAUSE` / `RESUME` (process-wide), `RE_ARM` (clears breaker-locked accounts and
+snapshots their new baseline equity), `STATUS` (includes each account's lock state).
 
 ### Ops dashboard (Cloud Run)
 
@@ -241,15 +244,16 @@ Working code was preferred where the specs met OANDA reality; deviations:
    steps (`minimumTradeSize: 0.1`); with integer units a $5k account cannot
    express any viable DE30 size (1% risk on a 0.5×ATR stop ≈ 0.8 units). Units
    are rounded to OANDA's `tradeUnitsPrecision`.
-2. **PointValue = 1.0 (quote currency)** — sizing values one price point per
-   unit at 1.0 of the *quote* currency (EUR for `DE30_EUR`). Cross-currency
-   conversion into the account currency is a TODO; on a EUR-denominated account
-   it is exact.
-3. **Trade management runs in `PAUSED`/`SYSTEM_LOCKED`** — spec 08's pseudocode
-   gates the loop on `ACTIVE`, but spec 09 requires paused/locked positions to
-   keep being managed to their exit. The loop only stops in `DISABLED`
-   (post-FLATTEN, nothing left to manage). Entries are blocked by risk in all
-   non-ACTIVE states either way.
+2. **PointValue is boot-time priced** — sizing values one OANDA pip per unit in
+   the account currency. When the instrument's quote/P&L currency differs from
+   the account currency, startup obtains a current OANDA midpoint for the direct
+   conversion pair (for example, `0.01 / USD_JPY` for `USD_JPY` in a USD account).
+   The value is fixed until restart, so it can drift as the conversion rate moves.
+3. **Trade management runs in `PAUSED`/`SYSTEM_LOCKED`/`DISABLED`** — spec 08's
+   pseudocode gates the loop on `ACTIVE`, but spec 09 requires paused/locked
+   positions to keep being managed to their exit. `DISABLED` (post-FLATTEN) also
+   keeps managing so a partial flatten retries closes until flat. Entries are
+   blocked by risk in all non-ACTIVE states either way.
 4. **Executor host/account config moved** — early drafts put `host`/`account_id`
    under `executor:`; the multi-account model uses `oanda:` (shared host) and
    `accounts[]` (id per sub-account).
@@ -258,18 +262,19 @@ Working code was preferred where the specs met OANDA reality; deviations:
    (`cmd/calendarpoller`: Finnhub → Gemini → Telegram) is implemented; Cloud
    Scheduler → Cloud Run scheduling may still be ops wiring. Dashboard also
    reads the same schema (local file or GCS).
-6. **Backtester is in scope** — it replays through the same strategy/risk/
-   management code, with two backtest-only behaviors: a simulated daily
-   `RE_ARM` at each new session day (otherwise one locked day would blank the
-   rest of the dataset) and SL-before-TP when one candle spans both brackets
-   (conservative fill model).
+6. **Backtester is EU LOVE only** — replays through the same strategy/risk/
+   management code for EU sessions, with two backtest-only behaviors: a simulated
+   daily `RE_ARM` at each new session day (otherwise one locked day would blank
+   the rest of the dataset) and SL-before-TP when one candle spans both brackets
+   (conservative fill model). FX soft-target harness keys in spec 19 are design
+   only until `fxtrld` is wired into `cmd/backtester`.
 7. **`ClientOrderID` time component uses the signal timestamp** formatted
    `yyyymmdd-hhmm` in its own zone (candle-close time), which keys retries to
    the intended entry candle exactly.
-8. **Boot state is `ACTIVE`** — spec 09's "boot into `SYSTEM_LOCKED` if the
-   daily loss was already breached" needs the ledger sidecar (deferred); until
-   then the equity reconcile + breaker re-check trips the lock on the first
-   settled close. Listed under TODO.
+8. **Boot restores daily risk state** — before entries start, the trader reads
+   today's OANDA `ORDER_FILL` transactions per active account, reconstructs
+   realized P&L and the consecutive-loss streak, and locks only the breached
+   account when either configured breaker was already breached.
 
 ## TODO (deferred by design)
 
@@ -280,8 +285,6 @@ Working code was preferred where the specs met OANDA reality; deviations:
 - Trader `status.json` publisher to GCS (async/best-effort; not on the order
   hot path) so the dashboard health panel can show green/red from live state.
 - Secret Manager resolver behind `config.SecretResolver` (env vars in v1).
-- Daily-loss recomputation from OANDA transaction history at boot (see
-  deviation 8).
 - US Sweep / Asia MeanRev strategies (interfaces and LIMIT-order plumbing are
   in place: `CancelOrder`, `LimitPrice`, GTD).
 - 2026 holiday file is a best-effort placeholder — validate against the

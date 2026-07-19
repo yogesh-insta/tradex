@@ -5,14 +5,15 @@
 The single source of truth for "can we take this trade, and at what size?" Consumes a
 `Signal`, applies per-trade sizing and per-account gates, and either emits a sized
 `OrderRequest` or rejects (with a reason). Also owns the daily loss breaker and kill
-switch. Evaluated **per account** (v1: one EU account).
+switch. Evaluated **per account** (shipped: EU + FX accounts when `accounts[].active`).
 
 ## Inputs
 
 - `Signal` from the strategy engine.
 - Account state: equity, available margin, open trades (from executor/reconcile),
   today's realized P&L, consecutive-loss counter.
-- `SystemState` from the control plane (`ACTIVE`/`PAUSED`/`SYSTEM_LOCKED`/`DISABLED`).
+- Process-wide `SystemState` from the control plane (`ACTIVE`/`PAUSED`/`DISABLED`) and
+  the account's breaker-lock state.
 - `market_data_stale` flag (`02-market-data-stream.md`); calendar state (`10-economic-calendar.md`).
 - Instrument metadata (point value, margin rate, min size, precision) from executor.
 - Config: risk numbers, correlation groups.
@@ -24,21 +25,23 @@ switch. Evaluated **per account** (v1: one EU account).
 
 ## Behavior — gate order (fail fast; first failure rejects)
 
-1. **System state:** reject unless `ACTIVE` (`PAUSED`/`SYSTEM_LOCKED`/`DISABLED` → reject
+1. **Process state:** reject unless `ACTIVE` (`PAUSED`/`DISABLED` → reject
    `system_not_active`).
-2. **Kill/breaker:** if today's realized loss ≤ `-daily_loss_limit` ($150) → force
-   `SYSTEM_LOCKED` and reject `daily_loss_breaker`. (Re-arm only via control plane.)
-3. **Data health:** reject `stale_market_data` if the snapshot is stale.
-4. **News window:** reject `news_blackout` if a high-impact event for this instrument's
+2. **Account breaker lock:** reject the locked account with its recorded breaker reason;
+   other accounts remain eligible.
+3. **Kill/breaker:** if today's realized loss ≤ `-daily_loss_limit` ($150) → lock that
+   account and reject `daily_loss_breaker`. (Re-arm only via control plane.)
+4. **Data health:** reject `stale_market_data` if the snapshot is stale.
+5. **News window:** reject `news_blackout` if a high-impact event for this instrument's
    region is within `news_block_before` (30 min) — fail-safe if calendar is stale/unknown.
-5. **Concurrency (per index):** reject `already_open` if an open trade exists for the
+6. **Concurrency (per index):** reject `already_open` if an open trade exists for the
    instrument.
-6. **Correlation guard:** reject `correlated_open` if any instrument in the same
+7. **Correlation guard:** reject `correlated_open` if any instrument in the same
    correlation group is open (v1 group: `{DE30_EUR, FR40_EUR}` → only one at a time).
-7. **Max concurrent:** reject `max_concurrent` if open positions ≥ `max_concurrent`.
-8. **Consecutive losses:** if the consecutive-loss counter ≥ `consecutive_loss_halt` (3)
-   → force `SYSTEM_LOCKED`, reject `consecutive_loss_breaker`.
-9. **Sizing** (only if all gates pass) — see below. Reject `size_too_small` if computed
+8. **Max concurrent:** reject `max_concurrent` if open positions ≥ `max_concurrent`.
+9. **Consecutive losses:** if the consecutive-loss counter ≥ `consecutive_loss_halt` (3)
+   → lock that account, reject `consecutive_loss_breaker`.
+10. **Sizing** (only if all gates pass) — see below. Reject `size_too_small` if computed
    units < instrument min size; reject `margin_gate` if it can't be scaled to fit.
 
 ### Sizing
@@ -91,8 +94,8 @@ risk:
   `correlated_open`.
 - Sizing: on $5,000 equity, `risk_per_trade=0.01`, a stop distance of `0.5×ATR` yields
   units such that a stop-out loses ≈ $50 (within rounding/point-value).
-- A cumulative realized loss reaching −$150 flips state to `SYSTEM_LOCKED` and rejects
-  further entries until `RE_ARM`.
+- A cumulative realized loss reaching −$150 locks that account and rejects its further
+  entries until `RE_ARM`; it does not block another account.
 - 3 consecutive losing trades → `consecutive_loss_breaker` lock.
 - Risk never calls OANDA directly; it only emits `OrderRequest` to the executor.
 

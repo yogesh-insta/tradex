@@ -5,13 +5,18 @@
 Define the **validation path** for the FX TRLD lane: offline replay harness, cost model,
 statistical **soft targets**, paper soak, and promotion guidance.
 
+**Implementation status:** `cmd/backtester` today replays **EU LOVE only** (Berlin
+session + `eulove`). The FX harness below is the **design contract** — not yet wired
+to `fxtrld` / `FXSession` / `fx_risk`. Until it ships, paper soak on `fxpractice` is
+the practical validation path; treat offline soft-target reports as a TODO.
+
 **Decision B (locked):** soft targets — build and paper-trade; backtest metrics **guide**
 promotion. They are **not** a hard live blocker. Missing a target means document and
 revise `16`/`17` before sizing up capital — never loosen `18` kill-switch limits to
 “pass” a report.
 
-Stronger evidence than EU (which shipped paper-only without an offline harness), but
-intentionally softer than a mandatory gate.
+Stronger evidence than EU (which shipped paper-only without a required offline
+harness), but intentionally softer than a mandatory gate.
 
 Design: [`../fx-usdjpy-architecture.md`](../fx-usdjpy-architecture.md) §6.
 Strategy under test: [`17-strategy-fx-trld.md`](./17-strategy-fx-trld.md) +

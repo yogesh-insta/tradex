@@ -341,6 +341,9 @@ func (c *Config) validateFX() []error {
 	if fr.MaxSpreadPips <= 0 {
 		add("fx_risk.max_spread_pips must be > 0")
 	}
+	if fr.SoftCutoffFlattenR <= 0 {
+		add("fx_risk.soft_cutoff_flatten_r must be > 0 (else soft-cutoff flatten is silently off)")
+	}
 	if fr.FridayNoEntry != "" {
 		if _, err := clockSeconds(fr.FridayNoEntry); err != nil {
 			add("fx_risk.friday_no_entry: %v", err)

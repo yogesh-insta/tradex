@@ -78,6 +78,11 @@ type InstrumentsResponse struct {
 	Instruments []RESTInstrument `json:"instruments"`
 }
 
+// PricingResponse contains the current bid/ask ladders requested for an account.
+type PricingResponse struct {
+	Prices []StreamMessage `json:"prices"`
+}
+
 // RESTInstrument is OANDA's instrument metadata.
 type RESTInstrument struct {
 	Name                        string `json:"name"`
@@ -153,6 +158,12 @@ type ClientExtensions struct {
 	Comment string `json:"comment,omitempty"`
 }
 
+// TradeClientExtensionsBody updates metadata attached to an existing trade.
+// The OANDA endpoint expects the extension object under clientExtensions.
+type TradeClientExtensionsBody struct {
+	ClientExtensions ClientExtensions `json:"clientExtensions"`
+}
+
 // CreateOrderResponse is the POST /orders result.
 type CreateOrderResponse struct {
 	OrderCreateTransaction *Transaction `json:"orderCreateTransaction"`
@@ -176,6 +187,13 @@ type Transaction struct {
 	Reason       string       `json:"reason"`
 	RejectReason string       `json:"rejectReason"`
 	TradeOpened  *TradeOpened `json:"tradeOpened"`
+}
+
+// TransactionsResponse lists account transactions returned by OANDA's
+// transaction-history endpoint.
+type TransactionsResponse struct {
+	Transactions      []Transaction `json:"transactions"`
+	LastTransactionID string        `json:"lastTransactionID"`
 }
 
 // TradeOpened links a fill to the created trade.

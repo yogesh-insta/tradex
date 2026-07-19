@@ -14,8 +14,9 @@ Consumer: [`17-strategy-fx-trld.md`](./17-strategy-fx-trld.md).
 
 - H1 + M5 candles from `03-candle-builder.md` for `USD_JPY`.
 - Daily candles from OANDA REST for the 14-day ATR (pre-session, ~07:30 JST).
-- Clock + trading-holiday / FX weekend calendar in `Asia/Tokyo` (DST-aware; Japan has
-  no DST — still use IANA for consistency).
+- Clock in `Asia/Tokyo` (DST-aware; Japan has no DST — still use IANA for consistency).
+  **v1:** weekend skip only (`SkipWeekends`). Configured JP/US FX holiday-file entries
+  are not yet wired into the FX controller (EU uses `holidays.yaml` for XETR/XPAR).
 - Config: window times, ATR length, instruments.
 
 ## Outputs
@@ -28,9 +29,8 @@ Consumer: [`17-strategy-fx-trld.md`](./17-strategy-fx-trld.md).
 Daily lifecycle (instrument `USD_JPY`, `Asia/Tokyo`):
 
 1. **Pre-session (07:30 JST):** pull daily candles; compute **14-day ATR** (Wilder). Set
-   `RangeLocked=false`. Skip the whole day if the holiday/weekend calendar marks FX
-   closed (Sat/Sun Tokyo calendar days that fall inside the FX weekend halt, and any
-   configured JP/US full FX holidays).
+   `RangeLocked=false`. Skip weekend days (`SkipWeekends`). Full JP/US FX holiday
+   calendar is a future wiring item — do not assume `holidays.yaml` gates FX today.
 2. **Range window (09:00:00–10:59:59):** accumulate `OpeningHigh`/`OpeningLow` from
    candles; start the **running VWAP** (`Σ(typical×vol)/Σvol`, typical=(H+L+C)/3) from
    `range_start`; maintain `VolMA12` over the trailing 12 M5 candles.
@@ -54,8 +54,8 @@ so London breaks are judged against the day’s accumulated Tokyo+post-Tokyo VWA
 
 ### FX weekend / reopen
 
-- Controller stays idle while spot FX is closed (typical: Friday NY close → Sunday NY
-  open). Exact open/close use config + holiday file; do not invent ticks.
+- Controller stays idle on weekends (typical: Friday NY close → Sunday NY open). Exact
+  open/close beyond weekend skip is ops/future holiday wiring; do not invent ticks.
 - After Sunday reopen, still wait for the next Tokyo range window; do not synthesize a
   partial Sunday night range as “Tokyo range.”
 

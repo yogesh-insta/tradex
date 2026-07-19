@@ -186,6 +186,24 @@ func (c *Client) Instruments(ctx context.Context, accountID string, names []stri
 	return out, err
 }
 
+// MidPrice returns the current midpoint for an account-tradeable instrument.
+func (c *Client) MidPrice(ctx context.Context, accountID, instrument string) (float64, error) {
+	q := url.Values{}
+	q.Set("instruments", instrument)
+	var out PricingResponse
+	if err := c.do(ctx, http.MethodGet, "/v3/accounts/"+accountID+"/pricing", q, nil, &out); err != nil {
+		return 0, err
+	}
+	if len(out.Prices) != 1 || len(out.Prices[0].Bids) == 0 || len(out.Prices[0].Asks) == 0 {
+		return 0, fmt.Errorf("pricing: no bid/ask for %s", instrument)
+	}
+	bid, ask := float64(out.Prices[0].Bids[0].Price), float64(out.Prices[0].Asks[0].Price)
+	if bid <= 0 || ask <= 0 {
+		return 0, fmt.Errorf("pricing: invalid bid/ask for %s", instrument)
+	}
+	return (bid + ask) / 2, nil
+}
+
 // AccountSummary fetches equity/margin state for sizing.
 func (c *Client) AccountSummary(ctx context.Context, accountID string) (AccountSummary, error) {
 	var out AccountSummaryResponse
@@ -215,9 +233,30 @@ func (c *Client) Trade(ctx context.Context, accountID, tradeID string) (RESTTrad
 	return out.Trade, err
 }
 
+// Transactions returns ORDER_FILL transactions over [from, to]. ORDER_FILL is
+// the OANDA transaction that realizes trade P&L on a full or partial close;
+// opening fills report zero PL and are harmless to callers that aggregate it.
+func (c *Client) Transactions(ctx context.Context, accountID string, from, to time.Time) (TransactionsResponse, error) {
+	q := url.Values{}
+	q.Set("from", from.UTC().Format(time.RFC3339))
+	q.Set("to", to.UTC().Format(time.RFC3339))
+	q.Set("type", "ORDER_FILL")
+	q.Set("pageSize", "1000")
+	var out TransactionsResponse
+	err := c.do(ctx, http.MethodGet, "/v3/accounts/"+accountID+"/transactions", q, nil, &out)
+	return out, err
+}
+
 // SetTradeOrders replaces a trade's dependent SL/TP orders.
 func (c *Client) SetTradeOrders(ctx context.Context, accountID, tradeID string, body TradeOrdersBody) error {
 	return c.do(ctx, http.MethodPut, "/v3/accounts/"+accountID+"/trades/"+tradeID+"/orders", nil, body, nil)
+}
+
+// SetTradeClientExtensions persists broker-visible metadata for a live trade.
+func (c *Client) SetTradeClientExtensions(ctx context.Context, accountID, tradeID string, extensions ClientExtensions) error {
+	return c.do(ctx, http.MethodPut, "/v3/accounts/"+accountID+"/trades/"+tradeID+"/clientExtensions", nil, TradeClientExtensionsBody{
+		ClientExtensions: extensions,
+	}, nil)
 }
 
 // CloseTrade market-closes a trade in full.

@@ -153,10 +153,11 @@ func Run(ctx context.Context, p Params) (Result, error) {
 		return p.Calendar.TimeToHighImpact(region, at)
 	}
 	engine = risk.NewEngine(cfg.Risk, acct, "EU", risk.Deps{
-		SystemState: machine.State,
-		ForceLock:   machine.ForceLock,
-		Stale:       func(string, time.Time) bool { return false },
-		TimeToNews:  timeToNews,
+		SystemState:      machine.State,
+		AccountLock:      machine.AccountLock,
+		ForceLockAccount: machine.ForceLockAccount,
+		Stale:            func(string, time.Time) bool { return false },
+		TimeToNews:       timeToNews,
 		OpenTrades: func() []types.OpenTrade {
 			ts, _ := sim.OpenTrades(ctx)
 			return ts
@@ -221,8 +222,8 @@ func Run(ctx context.Context, p Params) (Result, error) {
 		if day := simNow.In(loc).Format("2006-01-02"); day != curDay {
 			curDay = day
 			acct.SnapshotBaseline()
-			if machine.State() == types.StateSystemLock {
-				_, _ = machine.ReArm()
+			if locked, _ := machine.AccountLock(acct.Name()); locked {
+				_, _, _ = machine.ReArm()
 			}
 			if err := sess.RefreshATR(ctx); err != nil {
 				log.Debug("ATR refresh failed (not enough history yet)", "error", err)

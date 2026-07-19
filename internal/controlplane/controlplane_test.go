@@ -36,9 +36,9 @@ func TestStateMachineTransitions(t *testing.T) {
 		{"force lock from active", func(m *Machine) error { m.ForceLock("breaker"); return nil }, types.StateActive, types.StateSystemLock, true},
 		{"force lock from paused", func(m *Machine) error { m.ForceLock("breaker"); return nil }, types.StatePaused, types.StateSystemLock, true},
 		{"force lock ignored when disabled", func(m *Machine) error { m.ForceLock("breaker"); return nil }, types.StateDisabled, types.StateDisabled, true},
-		{"re-arm exits lock", func(m *Machine) error { _, err := m.ReArm(); return err }, types.StateSystemLock, types.StateActive, true},
-		{"re-arm exits disabled", func(m *Machine) error { _, err := m.ReArm(); return err }, types.StateDisabled, types.StateActive, true},
-		{"re-arm no-op when active", func(m *Machine) error { _, err := m.ReArm(); return err }, types.StateActive, types.StateActive, true},
+		{"re-arm exits lock", func(m *Machine) error { _, _, err := m.ReArm(); return err }, types.StateSystemLock, types.StateActive, true},
+		{"re-arm exits disabled", func(m *Machine) error { _, _, err := m.ReArm(); return err }, types.StateDisabled, types.StateActive, true},
+		{"re-arm no-op when active", func(m *Machine) error { _, _, err := m.ReArm(); return err }, types.StateActive, types.StateActive, true},
 		{"disable from anywhere", func(m *Machine) error { m.Disable("FLATTEN"); return nil }, types.StateSystemLock, types.StateDisabled, true},
 	}
 	for _, tt := range tests {
@@ -60,13 +60,35 @@ func TestStateMachineTransitions(t *testing.T) {
 
 func TestReArmReportsChange(t *testing.T) {
 	m := NewMachine(types.StateSystemLock, discard(), nil)
-	changed, err := m.ReArm()
+	_, changed, err := m.ReArm()
 	if err != nil || !changed {
 		t.Fatalf("changed=%v err=%v, want true,nil", changed, err)
 	}
-	changed, err = m.ReArm()
+	_, changed, err = m.ReArm()
 	if err != nil || changed {
 		t.Fatalf("second re-arm changed=%v err=%v, want false,nil (idempotent)", changed, err)
+	}
+}
+
+func TestAccountLocksDoNotChangeGlobalStateAndReArmClearsThem(t *testing.T) {
+	m := NewMachine(types.StateActive, discard(), nil)
+	m.ForceLockAccount("eu", "daily_loss_breaker")
+	m.ForceLockAccount("fx", "consecutive_loss_breaker")
+	if got := m.State(); got != types.StateActive {
+		t.Fatalf("state = %s, want ACTIVE", got)
+	}
+	if locked, reason := m.AccountLock("eu"); !locked || reason != "daily_loss_breaker" {
+		t.Fatalf("EU lock = %v, %q", locked, reason)
+	}
+	accounts, changed, err := m.ReArm()
+	if err != nil || !changed || len(accounts) != 2 {
+		t.Fatalf("ReArm = %#v, %v, %v; want both accounts and changed", accounts, changed, err)
+	}
+	if locked, _ := m.AccountLock("eu"); locked {
+		t.Fatal("EU lock remains after RE_ARM")
+	}
+	if got := m.State(); got != types.StateActive {
+		t.Fatalf("state = %s, want ACTIVE", got)
 	}
 }
 
@@ -176,7 +198,10 @@ func TestExecuteCommands(t *testing.T) {
 	t.Run("RE_ARM snapshots baseline only when it unlocks", func(t *testing.T) {
 		snapshots := 0
 		s, _ := newTestServer(t, Actions{
-			ReArm: func(context.Context) error { snapshots++; return nil },
+			ReArm: func(_ context.Context, accounts []string) error {
+				snapshots += len(accounts)
+				return nil
+			},
 		})
 		// Not locked: no-op, no snapshot.
 		if _, err := s.Execute(context.Background(), Command{Command: "RE_ARM"}); err != nil {
@@ -185,7 +210,7 @@ func TestExecuteCommands(t *testing.T) {
 		if snapshots != 0 {
 			t.Fatal("no-op RE_ARM must not snapshot")
 		}
-		s.machine.ForceLock("daily_loss_breaker")
+		s.machine.ForceLockAccount("eu", "daily_loss_breaker")
 		if _, err := s.Execute(context.Background(), Command{Command: "RE_ARM"}); err != nil {
 			t.Fatal(err)
 		}
