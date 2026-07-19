@@ -21,8 +21,9 @@ accounts:
     # risk:                       # optional per-account overrides
     #   daily_loss_limit: 150
 
+  # Practice FX account ID inlined for demo VM boot (also set OANDA_ACCOUNT_ID_FX in tradex.env).
   - name: "fx-usdjpy"
-    oanda_account_id: "${OANDA_ACCOUNT_ID_FX}"
+    oanda_account_id: "101-011-39706277-004"
     instruments: ["USD_JPY"]
     strategy: "fx_trld"
     active: true
