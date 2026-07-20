@@ -1,0 +1,9 @@
+{
+    "as_of": "2026-01-01",
+    "total_capital_inr": 1000000,
+    "holdings": [
+      {"symbol": "RELIANCE", "qty": 10, "avg_price": 1000.00}
+    ],
+    "notes": "Example seed only. The live book is gs://tradex-demo-state/nserotator/portfolio.json and is not stored in git."
+  }
+  

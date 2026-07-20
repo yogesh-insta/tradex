@@ -1,0 +1,26 @@
+# Cloud Run image for the NSE momentum rotator (spec 20).
+# Cloud Scheduler (weekdays 18:00 IST) → HTTP /run → last-trading-day gate →
+# Yahoo → rank/diff → Telegram → GCS. Advisory-only; no broker connectivity.
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/nserotator ./cmd/nserotator
+
+# tzdata needed: the gate runs in Asia/Kolkata.
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY --from=build /usr/local/go/lib/time/zoneinfo.zip /zoneinfo.zip
+ENV ZONEINFO=/zoneinfo.zip
+COPY --from=build /out/nserotator /app/nserotator
+COPY config/config.nserotator.cloudrun.yaml /app/config/config.nserotator.cloudrun.yaml
+COPY config/universe-nse200.yaml /app/config/universe-nse200.yaml
+COPY config/holidays-nse.yaml /app/config/holidays-nse.yaml
+
+EXPOSE 8080
+ENV PORT=8080
+ENTRYPOINT ["/app/nserotator"]
+CMD ["--config", "config/config.nserotator.cloudrun.yaml"]
