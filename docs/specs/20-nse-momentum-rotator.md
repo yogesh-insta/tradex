@@ -106,9 +106,10 @@ All signal math must be pure functions with table-driven unit tests mirroring
 
 - `config/holidays-nse.yaml` — checked-in NSE holiday list, validated yearly
   against the official NSE calendar (same ritual as Eurex/Euronext file).
-- Universe: ~60 NSE large-cap symbols, checked into config (initial list =
-  the backtest universe). Reviewed manually once a year; changes are config
-  PRs, not code.
+- Universe: **Nifty 200**, checked in at `config/universe-nse200.yaml`
+  (source: official NSE constituent CSV, as-of date in the file header).
+  Refreshed yearly via config PR. Recently listed names (e.g. GROWW, SWIGGY)
+  participate only once they have `lookback_months` of history.
 
 ## Outputs
 
@@ -185,12 +186,21 @@ Secrets only as `${ENV}` references; fail-fast validation at boot (repo standard
    A helper `gsutil cp` one-liner is documented in `data/README-nserotator.md`.
 4. Yearly (December): refresh universe list + `holidays-nse.yaml`.
 
-## Open questions for review
+## Resolved decisions (review 2026-07-20)
 
-1. Universe maintenance: keep the static 60-name list (simplest, drift risk) or
-   fetch current Nifty-100 constituents at run time (accurate, new dependency)?
-2. Should HOLD positions be rebalanced back to equal weight when they drift
-   >X% (more turnover/tax vs. tighter tracking of the backtest)?
-3. Dedicated Telegram chat vs. reusing the calendar review chat?
-4. Is ₹-denominated `total_capital_inr` manually bumped by you as profits
-   accrue, or should the job mark-to-market holdings + cash automatically?
+1. **Universe: Nifty 200, static checked-in list** (`config/universe-nse200.yaml`),
+   refreshed yearly. Runtime constituent fetching rejected (NSE scraping fragility).
+2. **No rebalancing of HOLD positions** — fewer orders, fewer taxable events;
+   full weight applied only when a slot turns over.
+3. **Telegram: reuse the calendar review chat** (`TELEGRAM_CHAT_ID`); no new env var.
+4. **Capital is manual** — user maintains `total_capital_inr` in `portfolio.json`;
+   no mark-to-market logic in the job.
+
+## Pre-implementation gate
+
+The backtest validated a 60-name large-cap universe. Before implementation, the
+offline backtest (`kite/backtest/momentum.py`) MUST be re-run on the Nifty 200
+universe (12m / top 5 / regime) to confirm the parameters hold. Midcaps have
+stronger momentum but deeper crashes and worse liquidity; if the 200-universe
+run shows materially worse drawdowns, fall back to Nifty 100 or add a liquidity
+filter — that decision reopens this spec.
