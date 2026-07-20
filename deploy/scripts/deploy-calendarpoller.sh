@@ -39,10 +39,14 @@ if ! gcloud storage buckets describe "gs://${BUCKET}" --project="${PROJECT}" >/d
   echo "==> created bucket gs://${BUCKET}"
 fi
 
-# Seed object so the VM can boot before the first poller run.
-if [[ -f "${REPO_ROOT}/data/calendar-state.json" ]]; then
-  gcloud storage cp "${REPO_ROOT}/data/calendar-state.json" "${GCS_URI}" --project="${PROJECT}"
-  echo "==> seeded ${GCS_URI}"
+# Seed object only when missing so deploys never clobber a fresher live calendar.
+if ! gcloud storage ls "${GCS_URI}" --project="${PROJECT}" >/dev/null 2>&1; then
+  if [[ -f "${REPO_ROOT}/data/calendar-state.json" ]]; then
+    gcloud storage cp "${REPO_ROOT}/data/calendar-state.json" "${GCS_URI}" --project="${PROJECT}"
+    echo "==> seeded ${GCS_URI}"
+  fi
+else
+  echo "==> keeping existing ${GCS_URI}"
 fi
 
 echo "==> building image ${IMAGE}"
@@ -81,7 +85,7 @@ gcloud run deploy "${SERVICE}" \
   --cpu=1 \
   --min-instances=0 \
   --max-instances=1 \
-  --timeout=120 \
+  --timeout=240 \
   --env-vars-file=/tmp/tradex-cal-env.yaml \
   --command=/app/calendarpoller \
   --args=--config=config/config.calendarpoller.cloudrun.yaml
@@ -120,6 +124,7 @@ if gcloud scheduler jobs describe "${SCHEDULER_JOB}" --location="${REGION}" --pr
     --time-zone='UTC' \
     --uri="${URL}/run" \
     --http-method=POST \
+    --attempt-deadline=240s \
     --oidc-service-account-email="${INVOKER_SA}" \
     --oidc-token-audience="${URL}"
 else
@@ -129,6 +134,7 @@ else
     --time-zone='UTC' \
     --uri="${URL}/run" \
     --http-method=POST \
+    --attempt-deadline=240s \
     --oidc-service-account-email="${INVOKER_SA}" \
     --oidc-token-audience="${URL}"
 fi

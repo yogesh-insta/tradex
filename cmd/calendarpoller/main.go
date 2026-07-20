@@ -148,7 +148,8 @@ func serveHTTP(ctx context.Context, listen string, cfg *config.Config, log *slog
 			http.NotFound(w, r)
 			return
 		}
-		runCtx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		// Budget covers Finnhub + Gemini retries (≤5 attempts, exp backoff ≤~1m) + Telegram/GCS.
+		runCtx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 		defer cancel()
 		res, err := runOnce(runCtx, cfg, log)
 		if err != nil {

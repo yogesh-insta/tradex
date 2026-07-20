@@ -3,7 +3,10 @@ package calendar
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -19,17 +22,31 @@ import (
 type GeminiClient struct {
 	APIKey string
 	Model  string
+	// MaxRetries is additional attempts after the first (default 4 → 5 total).
+	MaxRetries int
+	// BackoffBase / BackoffMax tune exponential backoff + full jitter between retries.
+	BackoffBase time.Duration
+	BackoffMax  time.Duration
 	// NewClient allows tests to inject a stub; production uses genai.NewClient.
 	NewClient func(ctx context.Context, cfg *genai.ClientConfig) (*genai.Client, error)
 	// Generate overrides the SDK call for unit tests.
 	Generate func(ctx context.Context, client *genai.Client, model string, prompt string) (string, error)
+	// Sleep overrides time.After for unit tests (must respect ctx cancellation).
+	Sleep func(ctx context.Context, d time.Duration) error
+	Log   *slog.Logger
 }
 
-const defaultGeminiModel = "gemini-2.5-flash-lite"
+const (
+	defaultGeminiModel       = "gemini-2.5-flash-lite"
+	defaultGeminiMaxRetries  = 4
+	defaultGeminiBackoffBase = 2 * time.Second
+	defaultGeminiBackoffMax  = 30 * time.Second
+)
 
 // FetchState asks Gemini (with Google Search) for the next lookaheadDays of
 // high-impact EU/US/JP events and returns a parsed State. as_of is stamped
-// by the caller after success.
+// by the caller after success. Transient generate failures (503/429/etc.) are
+// retried with exponential backoff + full jitter.
 func (c *GeminiClient) FetchState(ctx context.Context, now time.Time, lookaheadDays int) (State, error) {
 	if c.APIKey == "" {
 		return State{}, fmt.Errorf("gemini: API key empty")
@@ -43,25 +60,7 @@ func (c *GeminiClient) FetchState(ctx context.Context, now time.Time, lookaheadD
 	}
 
 	prompt := geminiPrompt(now, lookaheadDays)
-
-	var text string
-	var err error
-	if c.Generate != nil {
-		text, err = c.Generate(ctx, nil, model, prompt)
-	} else {
-		newClient := c.NewClient
-		if newClient == nil {
-			newClient = genai.NewClient
-		}
-		client, cerr := newClient(ctx, &genai.ClientConfig{
-			APIKey:  c.APIKey,
-			Backend: genai.BackendGeminiAPI,
-		})
-		if cerr != nil {
-			return State{}, fmt.Errorf("gemini: client: %w", cerr)
-		}
-		text, err = generateWithSearch(ctx, client, model, prompt)
-	}
+	text, err := c.generateWithRetry(ctx, model, prompt)
 	if err != nil {
 		return State{}, err
 	}
@@ -81,6 +80,122 @@ func (c *GeminiClient) FetchState(ctx context.Context, now time.Time, lookaheadD
 	}
 	filtered := FilterNormalize(raw)
 	return State{Events: filtered}, nil
+}
+
+func (c *GeminiClient) generateWithRetry(ctx context.Context, model, prompt string) (string, error) {
+	retries := c.MaxRetries
+	if retries <= 0 {
+		retries = defaultGeminiMaxRetries
+	}
+	base := c.BackoffBase
+	if base <= 0 {
+		base = defaultGeminiBackoffBase
+	}
+	max := c.BackoffMax
+	if max <= 0 {
+		max = defaultGeminiBackoffMax
+	}
+	log := c.Log
+	if log == nil {
+		log = slog.Default()
+	}
+	sleep := c.Sleep
+	if sleep == nil {
+		sleep = func(ctx context.Context, d time.Duration) error {
+			select {
+			case <-time.After(d):
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+
+	var lastErr error
+	for attempt := 0; attempt <= retries; attempt++ {
+		if attempt > 0 {
+			d := base << (attempt - 1)
+			if d > max {
+				d = max
+			}
+			d += time.Duration(rand.Int63n(int64(d) + 1)) // full jitter
+			log.Warn("gemini generate retrying",
+				"attempt", attempt, "backoff", d.String(), "error", lastErr)
+			if err := sleep(ctx, d); err != nil {
+				return "", err
+			}
+		}
+		text, err := c.generateOnce(ctx, model, prompt)
+		if err == nil {
+			return text, nil
+		}
+		lastErr = err
+		if !geminiTransient(err) || attempt == retries {
+			return "", err
+		}
+	}
+	return "", lastErr
+}
+
+func (c *GeminiClient) generateOnce(ctx context.Context, model, prompt string) (string, error) {
+	if c.Generate != nil {
+		return c.Generate(ctx, nil, model, prompt)
+	}
+	newClient := c.NewClient
+	if newClient == nil {
+		newClient = genai.NewClient
+	}
+	client, err := newClient(ctx, &genai.ClientConfig{
+		APIKey:  c.APIKey,
+		Backend: genai.BackendGeminiAPI,
+	})
+	if err != nil {
+		return "", fmt.Errorf("gemini: client: %w", err)
+	}
+	return generateWithSearch(ctx, client, model, prompt)
+}
+
+// geminiTransient reports whether err is worth retrying (overload, rate limit,
+// gateway blips). Permanent auth/schema errors return false.
+func geminiTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var ae genai.APIError
+	if errors.As(err, &ae) {
+		switch ae.Code {
+		case 408, 429, 500, 502, 503, 504:
+			return true
+		}
+		status := strings.ToUpper(ae.Status)
+		switch {
+		case strings.Contains(status, "UNAVAILABLE"),
+			strings.Contains(status, "RESOURCE_EXHAUSTED"),
+			strings.Contains(status, "ABORTED"),
+			strings.Contains(status, "DEADLINE"):
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "high demand"),
+		strings.Contains(msg, "unavailable"),
+		strings.Contains(msg, "resource_exhausted"),
+		strings.Contains(msg, "empty response"),
+		strings.Contains(msg, "connection reset"),
+		strings.Contains(msg, "temporary"):
+		return true
+	case strings.Contains(msg, "error 429"),
+		strings.Contains(msg, "error 500"),
+		strings.Contains(msg, "error 502"),
+		strings.Contains(msg, "error 503"),
+		strings.Contains(msg, "error 504"):
+		return true
+	}
+	return false
 }
 
 func generateWithSearch(ctx context.Context, client *genai.Client, model, prompt string) (string, error) {

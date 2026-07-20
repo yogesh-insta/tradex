@@ -41,6 +41,24 @@ def access_token():
         return json.load(response)["access_token"]
 
 
+def parse_rfc3339(value):
+    """Parse Go encoding/json time.Time (RFC3339Nano) for Python <3.11.
+
+    Go trims trailing fractional zeros, so as_of may have 1–9 fractional digits.
+    datetime.fromisoformat only accepts exactly 0 or 6 digits on older Pythons.
+    """
+    s = value.strip().replace("Z", "+00:00")
+    if "." in s:
+        head, rest = s.split(".", 1)
+        frac = ""
+        i = 0
+        while i < len(rest) and rest[i].isdigit():
+            frac += rest[i]
+            i += 1
+        s = f"{head}.{(frac + '000000')[:6]}{rest[i:]}"
+    return dt.datetime.fromisoformat(s)
+
+
 def heartbeat_as_of(status_object):
     bucket, object_name = status_object[5:].split("/", 1)
     encoded = urllib.parse.quote(object_name, safe="")
@@ -48,7 +66,7 @@ def heartbeat_as_of(status_object):
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {access_token()}"})
     with urllib.request.urlopen(request, timeout=10) as response:
         doc = json.load(response)
-    return dt.datetime.fromisoformat(doc["as_of"].replace("Z", "+00:00"))
+    return parse_rfc3339(doc["as_of"])
 
 
 def send_telegram(message):

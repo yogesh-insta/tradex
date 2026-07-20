@@ -87,6 +87,9 @@ func Run(ctx context.Context, cfg PollerConfig, deps PollerDeps) (Result, error)
 			return Result{}, fmt.Errorf("calendar poller: Finnhub yielded no events and Gemini client is nil")
 		}
 		deps.Gemini.Model = firstNonEmpty(deps.Gemini.Model, cfg.GeminiModel, defaultGeminiModel)
+		if deps.Gemini.Log == nil {
+			deps.Gemini.Log = log
+		}
 		st, err := deps.Gemini.FetchState(ctx, now, cfg.LookaheadDays)
 		if err != nil {
 			return Result{}, fmt.Errorf("calendar poller: Gemini fallback failed: %w", err)
