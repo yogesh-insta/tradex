@@ -1,0 +1,18 @@
+# NSE momentum rotator — local dev: state on disk, Telegram from env if set.
+#   go run ./cmd/nserotator --config config/config.nserotator.dev.yaml --force
+env: dev
+
+nserotator:
+  lookback_months: 12
+  top_k: 8
+  regime_ema_days: 200
+  universe_file: config/universe-nse200.yaml
+  holidays_file: config/holidays-nse.yaml
+  market: XNSE
+  local_state_dir: data/nserotator
+  yahoo_timeout_s: 30
+  drift_check: false
+
+telegram:
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}

@@ -1,0 +1,21 @@
+{
+  "as_of": "2026-07-20",
+  "total_capital_inr": 4000000,
+  "holdings": [
+    {"symbol": "LUMAXTECH", "qty": 150, "avg_price": 1734.84},
+    {"symbol": "RECLTD", "qty": 930, "avg_price": 354.50},
+    {"symbol": "SHILCTECH", "qty": 22, "avg_price": 3993.00},
+    {"symbol": "SHRIPISTON", "qty": 100, "avg_price": 2693.58},
+    {"symbol": "TDPOWERSYS", "qty": 250, "avg_price": 428.88},
+    {"symbol": "INOXINDIA", "qty": 195, "avg_price": 1506.69},
+    {"symbol": "SAMMAANCAP", "qty": 2000, "avg_price": 153.41},
+    {"symbol": "ALCODIS", "qty": 375, "avg_price": 393.69},
+    {"symbol": "DCXINDIA", "qty": 840, "avg_price": 220.06},
+    {"symbol": "JWL", "qty": 1050, "avg_price": 287.85},
+    {"symbol": "APOLLO", "qty": 1355, "avg_price": 208.36},
+    {"symbol": "ISGEC", "qty": 280, "avg_price": 1062.05},
+    {"symbol": "KAYNES", "qty": 75, "avg_price": 3921.17},
+    {"symbol": "TECHNOE", "qty": 226, "avg_price": 1254.44}
+  ],
+  "notes": "Seeded from Kite app screenshots 2026-07-20 (14 holdings, mkt val ~37.86L). Most are outside the Nifty 200 universe: the first run will recommend selling them. Execution and tax decisions are manual."
+}
