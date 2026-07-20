@@ -62,8 +62,12 @@ GCS helpers, slog JSON logging.
 
 ## Algorithm (normative)
 
-Parameters (config, defaults shown): `lookback_months: 12`, `top_k: 5`,
+Parameters (config, defaults shown): `lookback_months: 12`, `top_k: 8`,
 `regime_ema_days: 200`, `cost_note_pct: 0.12`.
+
+> `top_k: 8` (not 5): on the Nifty 200 universe the 200-run validation showed
+> top-8 cuts max drawdown to ~-25% (vs ~-32% for top-5) with comparable returns
+> — midcaps need the extra diversification.
 
 1. **Fetch** ~5 years of daily closes for: Nifty 50 index (`^NSEI`) and every
    universe symbol (`<SYMBOL>.NS`) from the Yahoo Finance chart API
@@ -196,11 +200,41 @@ Secrets only as `${ENV}` references; fail-fast validation at boot (repo standard
 4. **Capital is manual** — user maintains `total_capital_inr` in `portfolio.json`;
    no mark-to-market logic in the job.
 
-## Pre-implementation gate
+## Pre-implementation gate — PASSED (2026-07-20)
 
-The backtest validated a 60-name large-cap universe. Before implementation, the
-offline backtest (`kite/backtest/momentum.py`) MUST be re-run on the Nifty 200
-universe (12m / top 5 / regime) to confirm the parameters hold. Midcaps have
-stronger momentum but deeper crashes and worse liquidity; if the 200-universe
-run shows materially worse drawdowns, fall back to Nifty 100 or add a liquidity
-filter — that decision reopens this spec.
+Re-run on the Nifty 200 universe (2010–2026, both halves tested): strategy beat
+its equal-weight benchmark by ~20%/yr in each half; top-8 chosen over top-5 for
+drawdown control (−25% vs −32%). **Absolute CAGR figures (~40%) are inflated by
+severe survivorship bias** (today's constituents include stocks that grew into
+the index); written expectation remains **15–20% CAGR** with DDs in the −20…−30%
+range. The bias affects the backtest only — trading today's list forward has no
+lookahead.
+
+## Alerts & monitoring (normative)
+
+1. **Failure alerts** — every failure row in the table above sends a Telegram
+   "RUN FAILED — <reason>" message AND exits non-zero. A Cloud Monitoring alert
+   policy on Cloud Run job execution failures (email to owner) is part of the
+   deploy, covering the case where even Telegram is down.
+2. **Dead-man check** — a successful run always sends a Telegram message, even
+   when there are zero orders ("no changes this month"). Silence on the last
+   trading day therefore always means something is broken. Additionally, the
+   run writes `nserotator/heartbeat.json` (`last_success` timestamp) to GCS;
+   a Cloud Monitoring check alerts if no success in 35 days.
+3. **Universe drift detection** — each run best-effort fetches the official NSE
+   constituent CSV (`ind_nifty200list.csv`) and diffs it against
+   `config/universe-nse200.yaml`. On drift: prepend a Telegram warning listing
+   added/removed symbols ("universe file needs update — config PR"). Fetch
+   failure is logged but never blocks the run (checked-in list remains truth).
+4. **Per-symbol data staleness** — any universe symbol whose latest close is
+   older than 7 trading days is excluded from ranking and listed in the message
+   (catches renames/delistings like TATAMOTORS → TMCV/TMPV). If a **held**
+   symbol goes stale, that's a prominent warning — likely a corporate action
+   needing manual attention.
+5. **Bad-data guard** — a symbol with a >50% single-day move is excluded from
+   ranking and flagged (split/bonus mis-adjustment protection; Yahoo usually
+   adjusts, but renames and ISIN changes have burned this exact repo before).
+6. **Holiday-file staleness** — every December run warns if `holidays-nse.yaml`
+   lacks entries for the coming year (same yearly ritual as the EU calendar).
+7. **Portfolio staleness** — `as_of` older than 45 days → STALE-PORTFOLIO
+   warning prefix (defined in failure modes above).
