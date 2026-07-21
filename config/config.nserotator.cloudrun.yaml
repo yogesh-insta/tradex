@@ -1,0 +1,20 @@
+# NSE momentum rotator — Cloud Run config (docs/specs/20-nse-momentum-rotator.md).
+# Advisory-only: no broker connectivity, no order placement.
+env: prod
+
+nserotator:
+  lookback_months: 12
+  top_k: 8
+  regime_ema_days: 200
+  universe_file: config/universe-nse200.yaml
+  holidays_file: config/holidays-nse.yaml
+  market: XNSE
+  # portfolio.json (user-maintained), heartbeat.json and
+  # recommendation-YYYY-MM.json live under this prefix.
+  gcs_prefix: gs://tradex-demo-state/nserotator
+  yahoo_timeout_s: 30
+  drift_check: true
+
+telegram:
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}

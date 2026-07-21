@@ -1,0 +1,32 @@
+# NSE (India) trading holidays — checked-in config per spec 20.
+#
+# BEST-EFFORT PLACEHOLDER for 2026: fixed-date national holidays are reliable;
+# lunar-calendar holidays (marked ~ESTIMATE) MUST be validated against the
+# official NSE list (nseindia.com → Resources → Trading holidays) before
+# relying on month-ends near those dates. The rotator itself warns every
+# December if this file lacks the coming year.
+#
+# Impact of an error here is bounded: a wrongly-included date delays the run
+# by one day (gate fires on the previous trading day); a wrongly-missing date
+# means the 18:00 IST run finds Yahoo data unchanged from yesterday — no
+# corrupt signals, just a possibly earlier-than-ideal ranking.
+
+year: 2026
+
+markets:
+  XNSE:                        # National Stock Exchange of India
+    tz: "Asia/Kolkata"
+    holidays:
+      - "2026-01-26"           # Republic Day (Monday)
+      - "2026-03-03"           # Holi (~ESTIMATE)
+      - "2026-03-21"           # Id-ul-Fitr (~ESTIMATE)
+      - "2026-04-03"           # Good Friday
+      - "2026-04-14"           # Dr. Ambedkar Jayanti (Tuesday)
+      - "2026-05-01"           # Maharashtra Day (Friday)
+      - "2026-05-27"           # Bakri Id (~ESTIMATE)
+      - "2026-10-02"           # Gandhi Jayanti (Friday)
+      - "2026-10-20"           # Dussehra (~ESTIMATE)
+      - "2026-11-10"           # Diwali / Balipratipada (~ESTIMATE)
+      - "2026-11-24"           # Guru Nanak Jayanti (~ESTIMATE)
+      - "2026-12-25"           # Christmas (Friday)
+    half_days: []              # Muhurat trading session ignored (evening only)
