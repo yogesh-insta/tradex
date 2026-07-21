@@ -30,7 +30,7 @@ type FXProfile struct {
 	FridayNoEntryTZ     *time.Location
 	FridayHardFlatten   string
 	FridayHardFlattenTZ *time.Location
-	CalendarRegions     []string // news regions (US, JP)
+	CalendarRegions     []string       // news regions (US, JP)
 	SessionTZ           *time.Location // Asia/Tokyo for session-day key
 }
 

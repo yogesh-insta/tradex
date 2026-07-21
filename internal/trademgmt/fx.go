@@ -11,7 +11,7 @@ import (
 // FXConfig adds FX management policies (spec 18 / mgmt amendments).
 type FXConfig struct {
 	Enabled            bool
-	NewsUnderwaterFlat bool    // true: news + underwater → flatten; in profit → BE
+	NewsUnderwaterFlat bool // true: news + underwater → flatten; in profit → BE
 	SoftCutoffTZ       *time.Location
 	SoftCutoff         string  // "21:00:00" Asia/Tokyo
 	SoftCutoffFlattenR float64 // flatten if profitR < this at/after soft cutoff

@@ -11,10 +11,10 @@ func TestFilterNormalize(t *testing.T) {
 		{Country: "US", Title: "Non-Farm Payrolls", Impact: "high", Time: now},
 		{Country: "DE", Title: "German CPI Flash", Impact: "high", Time: now.Add(time.Hour)},
 		{Country: "JP", Title: "BOJ Rate Decision", Impact: "high", Time: now.Add(2 * time.Hour)},
-		{Country: "US", Title: "Fed Chair Speaks", Impact: "high", Time: now.Add(3 * time.Hour)}, // speech → drop
-		{Country: "US", Title: "Retail Sales", Impact: "high", Time: now.Add(4 * time.Hour)},     // not allowlisted
+		{Country: "US", Title: "Fed Chair Speaks", Impact: "high", Time: now.Add(3 * time.Hour)},  // speech → drop
+		{Country: "US", Title: "Retail Sales", Impact: "high", Time: now.Add(4 * time.Hour)},      // not allowlisted
 		{Country: "GB", Title: "BoE Rate Decision", Impact: "high", Time: now.Add(5 * time.Hour)}, // wrong country
-		{Country: "US", Title: "CPI", Impact: "medium", Time: now.Add(6 * time.Hour)},            // not high
+		{Country: "US", Title: "CPI", Impact: "medium", Time: now.Add(6 * time.Hour)},             // not high
 		{Country: "FR", Title: "ECB Press Conference", Impact: "3", Time: now.Add(7 * time.Hour)},
 		{Country: "JP", Title: "Tankan Large Manufacturers", Impact: "high", Time: now.Add(8 * time.Hour)},
 	}
