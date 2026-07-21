@@ -14,7 +14,7 @@ calendar:
     gcs_object: "gs://tradex-demo-state/calendar-state.json"
     high_impact_only: true
     regions: ["EU", "US", "JP"]
-    telegram_review: true
+    telegram_review: false
     auto_write_on_telegram_ok: true
 
 observability:
