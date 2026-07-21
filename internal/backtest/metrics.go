@@ -26,6 +26,7 @@ type Metrics struct {
 	GrossProfit    float64
 	GrossLoss      float64 // positive magnitude
 	ProfitFactor   float64 // grossProfit / grossLoss (Inf if no losses)
+	AvgR           float64 // average risk/reward multiple (RealizedPL / RiskDistance)
 	MaxDrawdown    float64 // peak-to-trough equity drop (currency)
 	MaxDrawdownPct float64 // relative to the peak
 	EquityCurve    []EquityPoint
@@ -38,6 +39,7 @@ func Compute(initialEquity float64, closed []ClosedTrade) Metrics {
 	peak := initialEquity
 	m.EquityCurve = append(m.EquityCurve, EquityPoint{Equity: initialEquity})
 
+	var totalR float64
 	for _, ct := range closed {
 		m.Trades++
 		pl := ct.RealizedPL
@@ -60,11 +62,17 @@ func Compute(initialEquity float64, closed []ClosedTrade) Metrics {
 				m.MaxDrawdownPct = dd / peak
 			}
 		}
+		// Calculate R multiple: realized P&L / risk distance
+		if ct.Trade.RiskDistance > 0 {
+			r := pl / ct.Trade.RiskDistance
+			totalR += r
+		}
 		m.EquityCurve = append(m.EquityCurve, EquityPoint{Time: ct.ClosedAt, Equity: equity})
 	}
 	m.FinalEquity = equity
 	if m.Trades > 0 {
 		m.WinRate = float64(m.Wins) / float64(m.Trades)
+		m.AvgR = totalR / float64(m.Trades)
 	}
 	if m.GrossLoss > 0 {
 		m.ProfitFactor = m.GrossProfit / m.GrossLoss
@@ -102,11 +110,11 @@ func (m Metrics) Summary() string {
 		pf = "inf (no losses)"
 	}
 	return fmt.Sprintf(
-		"trades: %d  wins: %d  losses: %d  win rate: %.1f%%\n"+
+		"trades: %d  wins: %d  losses: %d  win rate: %.1f%%  avg R: %.2f\n"+
 			"net P&L: %.2f  gross profit: %.2f  gross loss: %.2f  profit factor: %s\n"+
 			"max drawdown: %.2f (%.1f%%)\n"+
 			"equity: %.2f -> %.2f",
-		m.Trades, m.Wins, m.Losses, m.WinRate*100,
+		m.Trades, m.Wins, m.Losses, m.WinRate*100, m.AvgR,
 		m.NetPnL, m.GrossProfit, m.GrossLoss, pf,
 		m.MaxDrawdown, m.MaxDrawdownPct*100,
 		m.InitialEquity, m.FinalEquity)

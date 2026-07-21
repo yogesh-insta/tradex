@@ -192,6 +192,17 @@ func (c *Config) validateShared() []error {
 	if _, err := clockSeconds(s.EntryWindowEnd); err != nil {
 		add("strategies.eu_love.entry_window_end: %v", err)
 	}
+	if s.DailyCutoff != "" {
+		if _, err := clockSeconds(s.DailyCutoff); err != nil {
+			add("strategies.eu_love.daily_cutoff: %v", err)
+		}
+	}
+	if s.RangeWidthMaxATR < 0 {
+		add("strategies.eu_love.range_width_max_atr must be >= 0")
+	}
+	if s.MaxEntriesPerDay < 0 {
+		add("strategies.eu_love.max_entries_per_day must be >= 0")
+	}
 
 	// Risk (global + per-account merged views).
 	check := func(scope string, r RiskConfig) {

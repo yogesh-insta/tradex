@@ -217,11 +217,14 @@ type StrategiesConfig struct {
 
 // EULoveConfig — 05-strategy-eu-love.md.
 type EULoveConfig struct {
-	VolumeSpikeMult float64 `yaml:"volume_spike_mult"`
-	SLATRMult       float64 `yaml:"sl_atr_mult"`
-	TPATRMult       float64 `yaml:"tp_atr_mult"`
-	BreakevenAtR    float64 `yaml:"breakeven_at_r"`
-	EntryWindowEnd  string  `yaml:"entry_window_end"` // Europe/Berlin
+	VolumeSpikeMult    float64 `yaml:"volume_spike_mult"`
+	SLATRMult          float64 `yaml:"sl_atr_mult"`
+	TPATRMult          float64 `yaml:"tp_atr_mult"`
+	BreakevenAtR       float64 `yaml:"breakeven_at_r"`
+	EntryWindowEnd     string  `yaml:"entry_window_end"`     // Europe/Berlin
+	DailyCutoff        string  `yaml:"daily_cutoff"`         // "" = none; "17:30:00" for daily flattening (research)
+	RangeWidthMaxATR   float64 `yaml:"range_width_max_atr"`  // 0 = disabled; skip day if (high-low) > this*DailyATR (research)
+	MaxEntriesPerDay   int     `yaml:"max_entries_per_day"`  // 0 = unlimited; cap same-day re-entries (research)
 }
 
 // FXSessionConfig — 16-fx-session-controller.md (Asia/Tokyo clocks).

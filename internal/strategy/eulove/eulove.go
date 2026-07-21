@@ -18,15 +18,17 @@ const Name = "eu_love"
 
 // Config carries the strategy tunables (strategies.eu_love + session clocks).
 type Config struct {
-	VolumeSpikeMult  float64
-	SLATRMult        float64
-	TPATRMult        float64
-	BreakevenAtR     float64
-	TradeWindowStart string // "09:05:00" local
-	EntryWindowEnd   string // "11:00:00" local
-	FridayCutoff     string // "17:30:00" local; Friday hard flatten
-	DailyCutoff      string // "" = none (v1)
-	Location         *time.Location
+	VolumeSpikeMult   float64
+	SLATRMult         float64
+	TPATRMult         float64
+	BreakevenAtR      float64
+	TradeWindowStart  string // "09:05:00" local
+	EntryWindowEnd    string // "11:00:00" local
+	FridayCutoff      string // "17:30:00" local; Friday hard flatten
+	DailyCutoff       string // "" = none (v1); "17:30:00" for daily cutoff (research)
+	RangeWidthMaxATR  float64 // 0 = disabled; skip day if (high-low) > this*DailyATR (research)
+	MaxEntriesPerDay  int     // 0 = unlimited; cap same-day re-entries (research)
+	Location          *time.Location
 }
 
 // Strategy is stateless across calls beyond SessionState; safe to share.
