@@ -1,0 +1,1 @@
+fatal: backtest: no cached data at data/candles/FR40_EUR_M5_20220101_20260701.csv and no OANDA fetcher (set OANDA_API_TOKEN)
