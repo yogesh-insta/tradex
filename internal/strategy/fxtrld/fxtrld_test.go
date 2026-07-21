@@ -37,9 +37,9 @@ func testConfig(t *testing.T) Config {
 		PipSize:          0.01,
 		TradeWindowStart: "16:00:00",
 		EntryWindowEnd:   "19:00:00",
-		FridayCutoff:    "16:00:00",
-		FridayCutoffLoc: mustNY(t),
-		Location:        mustTokyo(t),
+		FridayCutoff:     "16:00:00",
+		FridayCutoffLoc:  mustNY(t),
+		Location:         mustTokyo(t),
 	}
 }
 

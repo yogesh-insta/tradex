@@ -256,25 +256,25 @@ type FXTRLDConfig struct {
 
 // FXRiskConfig — 18-fx-risk-profile.md (FX-only gates on top of RiskConfig).
 type FXRiskConfig struct {
-	AccountID            string   `yaml:"account_id"` // optional; accounts[].oanda_account_id is authoritative
-	RiskPerTrade         float64  `yaml:"risk_per_trade"`
-	DailyLossLimit       float64  `yaml:"daily_loss_limit"`
-	ConsecutiveLossHalt  int      `yaml:"consecutive_loss_halt"`
-	MaxConcurrent        int      `yaml:"max_concurrent"`
-	MaxMarginFrac        float64  `yaml:"max_margin_frac"`
-	MaxLeverage          float64  `yaml:"max_leverage"`
-	NewsBlockBefore      Duration `yaml:"news_block_before"`
-	MaxSpreadPips        float64  `yaml:"max_spread_pips"`
-	OneTradePerDay       *bool    `yaml:"one_trade_per_day"` // nil = true when FX enabled
-	ReopenQuietMinutes   int      `yaml:"reopen_quiet_minutes"`
-	FridayNoEntry        string   `yaml:"friday_no_entry"`    // America/New_York
-	FridayHardFlatten    string   `yaml:"friday_hard_flatten"` // America/New_York
-	SoftCutoffFlattenR   float64  `yaml:"soft_cutoff_flatten_r"`
-	CalendarRegions      []string `yaml:"calendar_regions"`
-	RequireSpread        *bool    `yaml:"require_spread"` // nil = true
-	FridayNoEntryTZ      string   `yaml:"friday_no_entry_tz"`
-	FridayHardFlattenTZ  string   `yaml:"friday_hard_flatten_tz"`
-	PipSize              float64  `yaml:"pip_size"` // USD_JPY default 0.01
+	AccountID           string   `yaml:"account_id"` // optional; accounts[].oanda_account_id is authoritative
+	RiskPerTrade        float64  `yaml:"risk_per_trade"`
+	DailyLossLimit      float64  `yaml:"daily_loss_limit"`
+	ConsecutiveLossHalt int      `yaml:"consecutive_loss_halt"`
+	MaxConcurrent       int      `yaml:"max_concurrent"`
+	MaxMarginFrac       float64  `yaml:"max_margin_frac"`
+	MaxLeverage         float64  `yaml:"max_leverage"`
+	NewsBlockBefore     Duration `yaml:"news_block_before"`
+	MaxSpreadPips       float64  `yaml:"max_spread_pips"`
+	OneTradePerDay      *bool    `yaml:"one_trade_per_day"` // nil = true when FX enabled
+	ReopenQuietMinutes  int      `yaml:"reopen_quiet_minutes"`
+	FridayNoEntry       string   `yaml:"friday_no_entry"`     // America/New_York
+	FridayHardFlatten   string   `yaml:"friday_hard_flatten"` // America/New_York
+	SoftCutoffFlattenR  float64  `yaml:"soft_cutoff_flatten_r"`
+	CalendarRegions     []string `yaml:"calendar_regions"`
+	RequireSpread       *bool    `yaml:"require_spread"` // nil = true
+	FridayNoEntryTZ     string   `yaml:"friday_no_entry_tz"`
+	FridayHardFlattenTZ string   `yaml:"friday_hard_flatten_tz"`
+	PipSize             float64  `yaml:"pip_size"` // USD_JPY default 0.01
 }
 
 // Enabled reports whether FX risk profile keys are present.
@@ -386,20 +386,20 @@ type CalendarConfig struct {
 
 // EconomicCalendarConfig configures the economic-events read path and poller.
 type EconomicCalendarConfig struct {
-	Provider              string    `yaml:"provider"`          // VM read: "file" | "gcs"; poller primary is always Finnhub
-	FallbackProvider      string    `yaml:"fallback_provider"` // "gemini"
-	GeminiModel           string    `yaml:"gemini_model"`
-	PollInterval          Duration  `yaml:"poll_interval"`
-	LookaheadDays         int       `yaml:"lookahead_days"`
-	StateFile             string    `yaml:"state_file"` // alias for local_file (VM read)
-	LocalFile             string    `yaml:"local_file"` // durable write path for poller
-	GCSObject             string    `yaml:"gcs_object"`
-	VMRefresh             Duration  `yaml:"vm_refresh"`
-	StalenessMax          Duration  `yaml:"staleness_max"`
-	HighImpactOnly        bool      `yaml:"high_impact_only"`
-	Regions               []string  `yaml:"regions"`
-	TelegramReview        *bool     `yaml:"telegram_review"`
-	AutoWriteOnTelegramOK *bool     `yaml:"auto_write_on_telegram_ok"`
+	Provider              string   `yaml:"provider"`          // VM read: "file" | "gcs"; poller primary is always Finnhub
+	FallbackProvider      string   `yaml:"fallback_provider"` // "gemini"
+	GeminiModel           string   `yaml:"gemini_model"`
+	PollInterval          Duration `yaml:"poll_interval"`
+	LookaheadDays         int      `yaml:"lookahead_days"`
+	StateFile             string   `yaml:"state_file"` // alias for local_file (VM read)
+	LocalFile             string   `yaml:"local_file"` // durable write path for poller
+	GCSObject             string   `yaml:"gcs_object"`
+	VMRefresh             Duration `yaml:"vm_refresh"`
+	StalenessMax          Duration `yaml:"staleness_max"`
+	HighImpactOnly        bool     `yaml:"high_impact_only"`
+	Regions               []string `yaml:"regions"`
+	TelegramReview        *bool    `yaml:"telegram_review"`
+	AutoWriteOnTelegramOK *bool    `yaml:"auto_write_on_telegram_ok"`
 }
 
 // HolidaysConfig points at the checked-in trading-holiday file.
@@ -418,16 +418,16 @@ type PersistenceConfig struct {
 
 // ObservabilityConfig — 12-observability-and-alerts.md.
 type ObservabilityConfig struct {
-	HeartbeatInterval Duration       `yaml:"heartbeat_interval"`
-	LivenessTimeout   Duration       `yaml:"liveness_timeout"`
-	ReconcileInterval Duration       `yaml:"reconcile_interval"`
-	DrawdownWarn      float64        `yaml:"drawdown_warn"`
-	AlertTopic        string         `yaml:"alert_topic"`
+	HeartbeatInterval Duration `yaml:"heartbeat_interval"`
+	LivenessTimeout   Duration `yaml:"liveness_timeout"`
+	ReconcileInterval Duration `yaml:"reconcile_interval"`
+	DrawdownWarn      float64  `yaml:"drawdown_warn"`
+	AlertTopic        string   `yaml:"alert_topic"`
 	// StatusFile and StatusObject are trader heartbeat targets. StatusObject is
 	// a gs:// URI, while StatusFile is an optional local diagnostic copy.
-	StatusFile        string         `yaml:"status_file"`
-	StatusObject      string         `yaml:"status_object"`
-	Telegram          TelegramConfig `yaml:"telegram"`
+	StatusFile   string         `yaml:"status_file"`
+	StatusObject string         `yaml:"status_object"`
+	Telegram     TelegramConfig `yaml:"telegram"`
 }
 
 // TelegramConfig holds outbound Telegram bot credentials (env-resolved).
