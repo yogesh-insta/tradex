@@ -1,6 +1,8 @@
 # EU LOVE Strategy Backtest Research
 
-## Baseline Results (DE30_EUR, 2022-01-01 to 2026-07-01)
+## Baseline Results Comparison
+
+### DE30_EUR (2022-01-01 to 2026-07-01)
 
 | Metric | Value |
 |--------|-------|
@@ -17,7 +19,36 @@
 | Initial Equity | 5,000.00 |
 | Final Equity | 5,594.63 |
 
-### Baseline Interpretation
+### FR40_EUR (2022-01-01 to 2026-07-01)
+
+| Metric | Value |
+|--------|-------|
+| Total Trades | 666 |
+| Wins | 137 |
+| Losses | 529 |
+| Win Rate | 20.6% |
+| Avg R (Risk/Reward) | **-0.07** |
+| Gross Profit | 9,236.71 |
+| Gross Loss | 11,885.09 |
+| Profit Factor | **0.78** |
+| Net P&L | **-2,648.37** |
+| Max Drawdown | 2,835.14 **(55.1%)** |
+| Initial Equity | 5,000.00 |
+| Final Equity | 2,351.63 |
+
+### Critical Finding: Strategy is NOT Robust
+
+**FR40 Results Invalidate Strategy as Configured**
+
+The FR40 baseline is a **catastrophic failure**:
+- **Negative Avg R (-0.07)**: On average, every trade loses 0.07 risk units
+- **Profit Factor < 1.0 (0.78)**: Losses grossly outweigh gains; strategy is net-negative
+- **55.1% Drawdown**: More than 10x worse than DE30's 19.9%
+- **Net Loss**: -2,648 on 5,000 initial equity (lost over half the account)
+
+This reveals the strategy is **instrument-specific or luck-dependent**, not a genuine breakout signal system.
+
+### Baseline Interpretation (DE30 Only)
 
 The current EU LOVE strategy is marginally profitable with extremely concerning metrics:
 
@@ -37,7 +68,30 @@ The current EU LOVE strategy is marginally profitable with extremely concerning 
 
 ---
 
-## Planned Experiments
+## BLOCKING ISSUE: Strategy Fails on FR40
+
+**CRITICAL**: Before running any optimization experiments, the strategy must be debugged to work on BOTH DE30 and FR40.
+
+### Hypotheses for FR40 Failure
+1. **Time of Day Bias**: Maybe EU LOVE works better for earlier/later London opens; FR40 may have different volatility profile
+2. **Instrument Decay**: FR40 may have structural differences (options expiry, index composition drift) that break the signal
+3. **Regime Sensitivity**: The 4.5-year backtest includes 2022-2023 (choppy/bearish) where momentum strategies suffer; FR40 may have been in worse regimes
+4. **Volume Signature**: VolMA12 threshold may be miscalibrated for FR40's typical volume vs DE30
+5. **Spread Impact**: FR40 might have different spread/slippage characteristics that break the small Avg R margins
+
+### Required Diagnostic
+Before optimization:
+1. Run DE30 and FR40 on same date ranges looking for regime split points
+2. Analyze which entries lose money vs win money (separately per instrument)
+3. Check if problem is entry signal validity or exit target calibration
+4. Consider if strategy should have instrument-specific parameters (different TPATRMult for FR40 vs DE30)
+
+### Recommendation
+**HALT optimization experiments** until strategy proves viable on both instruments. Optimizing DE30 alone risks over-fitting to one instrument's quirks.
+
+---
+
+## Planned Experiments (On Hold Until FR40 Debugged)
 
 ### Experiment A: TP ATR Multiplier Grid
 **Hypothesis**: Current 1.5 ATR TP target is either too tight (getting stopped out by noise) or too loose (missing profitable runner trades).
