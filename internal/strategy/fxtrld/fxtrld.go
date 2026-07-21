@@ -28,10 +28,10 @@ type Config struct {
 	PipSize          float64 // USD_JPY = 0.01
 	TradeWindowStart string  // Asia/Tokyo
 	EntryWindowEnd   string  // Asia/Tokyo
-	FridayCutoff    string // America/New_York hard flatten → Policy.TimeCutoff
-	FridayCutoffLoc *time.Location
-	TrailAfterR     float64
-	Location        *time.Location // Asia/Tokyo
+	FridayCutoff     string  // America/New_York hard flatten → Policy.TimeCutoff
+	FridayCutoffLoc  *time.Location
+	TrailAfterR      float64
+	Location         *time.Location // Asia/Tokyo
 }
 
 // Strategy is stateless across calls beyond SessionState.
