@@ -12,28 +12,28 @@ func TestFormatMessageOneLinePerSuggestionWithMarketCap(t *testing.T) {
 		NiftyClose:     24238,
 		NiftyEMA:       24396,
 		Orders: []Order{
-			{Side: "BUY", Symbol: "TITAN", Qty: 10, LastClose: 3450, ApproxValue: 34500, MarketCap: 2.45e12},
-			{Side: "SELL", Symbol: "OLDCO", Qty: 5, ApproxValue: 50000, MarketCap: 1.2e11},
+			{Side: "BUY", Symbol: "TITAN", CompanyName: "Titan Company Limited", Qty: 10, LastClose: 4721, ApproxValue: 47210, MarketCap: 2.45e12},
+			{Side: "SELL", Symbol: "OLDCO", CompanyName: "Old Company Limited", Qty: 5, LastClose: 10000, ApproxValue: 50000, MarketCap: 1.2e11},
 		},
 		TopRanked: []Ranked{
-			{Symbol: "TITAN", Momentum: 0.45, MarketCap: 2.45e12},
-			{Symbol: "BAJFINANCE", Momentum: 0.38, MarketCap: 8.12e12},
+			{Symbol: "TITAN", CompanyName: "Titan Company Limited", LastClose: 4721, Momentum: 0.45, MarketCap: 2.45e12},
+			{Symbol: "BAJFINANCE", CompanyName: "Bajaj Finance Limited", LastClose: 1060, Momentum: 0.38, MarketCap: 8.12e12},
 		},
 	}, 8, 6)
 
 	if strings.Contains(msg, " | ") {
 		t.Fatalf("expected one line per suggestion, got pipe-separated block:\n%s", msg)
 	}
-	if !strings.Contains(msg, "Top momentum (6m):\n  TITAN +45% · ₹2.45L Cr") {
+	if !strings.Contains(msg, "TITAN — Titan Company Limited · ₹4,721 · +45% · ₹2.45L Cr") {
 		t.Fatalf("missing formatted top-ranked line:\n%s", msg)
 	}
-	if !strings.Contains(msg, "  BAJFINANCE +38% · ₹8.12L Cr") {
+	if !strings.Contains(msg, "BAJFINANCE — Bajaj Finance Limited · ₹1,060 · +38% · ₹8.12L Cr") {
 		t.Fatalf("missing second ranked line:\n%s", msg)
 	}
-	if !strings.Contains(msg, "BUY  TITAN") || !strings.Contains(msg, "₹2.45L Cr") {
+	if !strings.Contains(msg, "BUY  TITAN — Titan Company Limited") || !strings.Contains(msg, "₹2.45L Cr") {
 		t.Fatalf("missing buy line with market cap:\n%s", msg)
 	}
-	if !strings.Contains(msg, "SELL OLDCO") || !strings.Contains(msg, "₹12.0K Cr") {
+	if !strings.Contains(msg, "SELL OLDCO — Old Company Limited") || !strings.Contains(msg, "₹12.0K Cr") {
 		t.Fatalf("missing sell line with market cap:\n%s", msg)
 	}
 }

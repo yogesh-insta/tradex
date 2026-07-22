@@ -1,7 +1,6 @@
 package nserotator
 
 import (
-	"math"
 	"sort"
 	"time"
 )
@@ -82,9 +81,19 @@ func Stale(s Series, now time.Time, maxAge time.Duration) bool {
 	return now.Sub(s.Candles[len(s.Candles)-1].Date) > maxAge
 }
 
-// BadJump reports whether any single-day move in the last windowDays exceeds
-// maxMove (e.g. 0.5 = 50%) — split/adjustment corruption guard.
-func BadJump(s Series, windowDays int, maxMove float64) bool {
+// BadJumpUp reports whether any single-day UP move in the last windowDays
+// exceeds maxMove. Upward spikes are usually bad feed data; exclude from momentum.
+func BadJumpUp(s Series, windowDays int, maxMove float64) bool {
+	return largeJump(s, windowDays, maxMove, true)
+}
+
+// LargeDownJump reports whether any single-day DOWN move exceeds maxMove.
+// Downward gaps are often splits/demergers (e.g. VEDL ex-date); warn only.
+func LargeDownJump(s Series, windowDays int, maxMove float64) bool {
+	return largeJump(s, windowDays, maxMove, false)
+}
+
+func largeJump(s Series, windowDays int, maxMove float64, upward bool) bool {
 	n := len(s.Candles)
 	start := n - windowDays
 	if start < 1 {
@@ -92,10 +101,16 @@ func BadJump(s Series, windowDays int, maxMove float64) bool {
 	}
 	for i := start; i < n; i++ {
 		prev := s.Candles[i-1].Close
-		if prev <= 0 {
+		cur := s.Candles[i].Close
+		if prev <= 0 || cur <= 0 {
 			continue
 		}
-		if math.Abs(s.Candles[i].Close/prev-1) > maxMove {
+		move := cur/prev - 1
+		if upward {
+			if move > maxMove {
+				return true
+			}
+		} else if move < -maxMove {
 			return true
 		}
 	}
@@ -104,9 +119,11 @@ func BadJump(s Series, windowDays int, maxMove float64) bool {
 
 // Ranked is one symbol's momentum score.
 type Ranked struct {
-	Symbol    string  `json:"symbol"`
-	Momentum  float64 `json:"momentum"`
-	MarketCap float64 `json:"market_cap_inr,omitempty"` // Yahoo summary; INR for .NS
+	Symbol      string  `json:"symbol"`
+	CompanyName string  `json:"company_name,omitempty"`
+	LastClose   float64 `json:"last_close,omitempty"`
+	Momentum    float64 `json:"momentum"`
+	MarketCap   float64 `json:"market_cap_inr,omitempty"` // Yahoo summary; INR for .NS
 }
 
 // Rank sorts eligible symbols by momentum descending; deterministic
