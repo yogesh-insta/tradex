@@ -188,6 +188,23 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 		}
 	}
 	diff := BuildOrders(pf.Holdings, target, lastClose, pf.TotalCapitalINR, p.TopK)
+
+	// Market cap for top-ranked list and order suggestions (best-effort).
+	mcapSymbols := symbolsForMarketCap(head(ranked, 10), diff)
+	mcaps := d.Yahoo.FetchMarketCaps(ctx, mcapSymbols)
+	for i := range ranked {
+		if i >= 10 {
+			break
+		}
+		ranked[i].MarketCap = mcaps[ranked[i].Symbol]
+	}
+	for i := range diff.Sells {
+		diff.Sells[i].MarketCap = mcaps[diff.Sells[i].Symbol]
+	}
+	for i := range diff.Buys {
+		diff.Buys[i].MarketCap = mcaps[diff.Buys[i].Symbol]
+	}
+
 	for _, t := range target {
 		found := false
 		for _, b := range diff.Buys {
@@ -323,4 +340,27 @@ func joinOrNone(s []string) string {
 		return "none"
 	}
 	return strings.Join(s, ", ")
+}
+
+func symbolsForMarketCap(top []Ranked, diff DiffResult) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(sym string) {
+		if sym == "" || seen[sym] {
+			return
+		}
+		seen[sym] = true
+		out = append(out, sym)
+	}
+	for _, r := range top {
+		add(r.Symbol)
+	}
+	for _, o := range diff.Sells {
+		add(o.Symbol)
+	}
+	for _, o := range diff.Buys {
+		add(o.Symbol)
+	}
+	sort.Strings(out)
+	return out
 }
