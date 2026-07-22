@@ -5,7 +5,7 @@
 # marketing categories into the five groups the monitor actually reasons about.
 # Yahoo symbol = <ticker>.AX.
 #
-# as-of: 2026-07-22 (betashares.com.au/fund/, 105 funds, + SEMI/Global X).
+# as-of: 2026-07-22 (https://www.betashares.com.au/fund/, 105 funds, + SEMI/Global X).
 # Refresh via config PR; the drift check warns when the live list diverges.
 #
 # Groups (normative, spec 21 §Universe):
