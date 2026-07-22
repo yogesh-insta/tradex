@@ -19,7 +19,7 @@ func TestFormatMessageOneLinePerSuggestionWithMarketCap(t *testing.T) {
 			{Symbol: "TITAN", CompanyName: "Titan Company Limited", LastClose: 4721, Momentum: 0.45, MarketCap: 2.45e12},
 			{Symbol: "BAJFINANCE", CompanyName: "Bajaj Finance Limited", LastClose: 1060, Momentum: 0.38, MarketCap: 8.12e12},
 		},
-	}, 8, 6)
+	}, 6, 200)
 
 	if strings.Contains(msg, " | ") {
 		t.Fatalf("expected one line per suggestion, got pipe-separated block:\n%s", msg)

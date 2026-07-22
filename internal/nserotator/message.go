@@ -7,14 +7,14 @@ import (
 
 // FormatMessage renders the Telegram text for one recommendation (spec 20).
 // Plain text (no Markdown parse mode) so symbols like M&M never break parsing.
-func FormatMessage(rec Recommendation, topK, lookbackMonths int) string {
+func FormatMessage(rec Recommendation, lookbackMonths, emaDays int) string {
 	var b strings.Builder
 	regime := "CASH — exit all positions"
 	if rec.RegimeInvested {
 		regime = "INVESTED"
 	}
 	fmt.Fprintf(&b, "NSE ROTATOR — %s\n", rec.Month)
-	fmt.Fprintf(&b, "Regime: %s (Nifty %.0f vs EMA200 %.0f)\n", regime, rec.NiftyClose, rec.NiftyEMA)
+	fmt.Fprintf(&b, "Regime: %s (Nifty %.0f vs EMA%d %.0f)\n", regime, rec.NiftyClose, emaDays, rec.NiftyEMA)
 
 	for _, w := range rec.Warnings {
 		fmt.Fprintf(&b, "⚠ %s\n", w)
