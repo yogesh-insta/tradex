@@ -195,6 +195,24 @@ function etfPct(v) {
   if (v == null || v === "") return "—";
   return Math.round(Number(v) * 100) + "%";
 }
+// nserotator recommendation JSON uses top_ranked[], momentum (fraction), company_name.
+function nseMom(m) {
+  if (m == null || m === "") return "—";
+  const pct = Math.round(Number(m) * 100);
+  return (pct > 0 ? "+" : "") + pct + "%";
+}
+function nsePrice(v) {
+  if (v == null || v === "") return "—";
+  const n = Number(v);
+  return n >= 100 ? "₹" + n.toFixed(0) : "₹" + n.toFixed(2);
+}
+function nseMc(v) {
+  if (v == null || v <= 0) return "n/a";
+  const cr = v / 1e7;
+  if (cr >= 100000) return "₹" + (cr / 100000).toFixed(2) + "L Cr";
+  if (cr >= 1000) return "₹" + (cr / 1000).toFixed(1) + "K Cr";
+  return "₹" + Math.round(cr) + " Cr";
+}
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 }
@@ -447,18 +465,39 @@ async function refresh() {
     nseHtml = '<div class="empty">' + esc(nse.error) + '</div>';
   } else if (nse) {
     let html = '<div class="nse-container">';
-    if (nse.top && nse.top.length) {
+    const regime = nse.regime_invested ? "INVESTED" : "CASH — exit all positions";
+    html += '<div class="meta">Regime: <strong>' + esc(regime) + '</strong>';
+    if (nse.nifty_close != null && nse.nifty_ema200 != null) {
+      html += ' · Nifty ' + Number(nse.nifty_close).toFixed(0) + ' vs EMA200 ' + Number(nse.nifty_ema200).toFixed(0);
+    }
+    html += '</div>';
+    const ranked = nse.top_ranked || [];
+    if (ranked.length) {
       html += '<div class="nse-section">';
-      html += '<h3>Top ' + nse.top.length + ' NSE Stocks (6m momentum)</h3>';
-      html += '<div class="scroll"><table><thead><tr><th>Rank</th><th>Symbol</th><th>Name</th><th class="num">Score</th><th class="num">Return</th><th class="num">Vol</th><th class="num">Sharpe</th></tr></thead><tbody>';
-      for (let i = 0; i < nse.top.length; i++) {
-        const t = nse.top[i];
-        html += '<tr><td>' + (i+1) + '</td><td><strong>' + esc(t.symbol) + '</strong></td><td>' + esc(t.name || '') +
-          '</td><td class="num">' + (t.score || '—').toFixed(2) +
-          '</td><td class="num ' + cls(t.return_pct) + '">' + (t.return_pct || '—') + '%</td>' +
-          '<td class="num">' + (t.volatility || '—') + '%</td><td class="num">' + (t.sharpe || '—').toFixed(2) + '</td></tr>';
+      html += '<h3>Top ' + ranked.length + ' NSE stocks (6m momentum)</h3>';
+      html += '<div class="scroll"><table><thead><tr><th>Rank</th><th>Symbol</th><th>Name</th><th class="num">6m</th><th class="num">Price</th><th class="num">MCap</th></tr></thead><tbody>';
+      for (let i = 0; i < ranked.length; i++) {
+        const t = ranked[i];
+        html += '<tr><td>' + (i+1) + '</td><td><strong>' + esc(t.symbol) + '</strong></td><td>' + esc(t.company_name || '') +
+          '</td><td class="num ' + cls(t.momentum) + '">' + nseMom(t.momentum) +
+          '</td><td class="num">' + nsePrice(t.last_close) + '</td><td class="num">' + nseMc(t.market_cap_inr) + '</td></tr>';
       }
       html += '</tbody></table></div></div>';
+    }
+    if (nse.orders && nse.orders.length) {
+      html += '<div class="nse-section">';
+      html += '<h3>Orders</h3>';
+      html += '<div class="scroll"><table><thead><tr><th>Side</th><th>Symbol</th><th>Name</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>';
+      for (const o of nse.orders) {
+        html += '<tr class="' + (o.side === "SELL" ? "alert" : "") + '"><td>' + esc(o.side) +
+          '</td><td><strong>' + esc(o.symbol) + '</strong></td><td>' + esc(o.company_name || '') +
+          '</td><td class="num">' + (o.qty ?? "—") + '</td><td class="num">' + nsePrice(o.last_close) +
+          '</td><td class="num">' + nsePrice(o.approx_value_inr) + '</td></tr>';
+      }
+      html += '</tbody></table></div></div>';
+    }
+    if (nse.holds && nse.holds.length) {
+      html += '<div class="meta">Hold: ' + esc(nse.holds.join(", ")) + '</div>';
     }
     if (nse.warnings && nse.warnings.length) {
       html += '<div class="nse-section warnings">';
