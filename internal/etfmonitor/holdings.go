@@ -18,8 +18,12 @@ import (
 // Holding is one self-tracked ETF position. Hand-edited by the user; never read
 // from a broker (spec 21 §Non-goals).
 type Holding struct {
-	Ticker   string  `json:"ticker"`
-	Qty      float64 `json:"qty"`
+	Ticker string  `json:"ticker"`
+	Qty    float64 `json:"qty"`
+	// AvgPrice is recorded for the user's own bookkeeping and is deliberately
+	// NOT used by any logic: the exit rule is trend-based, so entry price must
+	// not influence it. Anchoring a sell decision to what you paid is the bias
+	// the 200-day rule exists to remove.
 	AvgPrice float64 `json:"avg_price"`
 }
 
@@ -56,6 +60,7 @@ type ExitAlert struct {
 	Ticker string  `json:"ticker"`
 	Name   string  `json:"name"`
 	Reason string  `json:"reason"`
+	Qty    float64 `json:"qty,omitempty"` // from holdings.json, so the alert says how much
 	Ret3M  Ret     `json:"-"`
 	Vol    float64 `json:"vol,omitempty"`
 }
@@ -68,7 +73,7 @@ type Report struct {
 	Top         []Scored    `json:"top"`
 	BelowTrend  []Scored    `json:"below_trend"`
 	Watchlist   []Scored    `json:"watchlist,omitempty"`
-	Geared      []Scored    `json:"geared_fx"`
+	GearedFX    []Scored    `json:"geared_fx"`
 	Inverse     []Scored    `json:"inverse"`
 	Rejected    []string    `json:"rejected,omitempty"` // bad data / too little history
 	DriftNotes  []string    `json:"drift_notes,omitempty"`

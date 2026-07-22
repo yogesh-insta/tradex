@@ -22,7 +22,7 @@ func FormatMessage(r Report, topN int) string {
 		// into broken formatting.
 		b.WriteString("\n!! EXIT ALERTS — held funds below trend !!\n")
 		for _, e := range r.Exits {
-			fmt.Fprintf(&b, "  EXIT %s — %s\n", e.Ticker, e.Reason)
+			fmt.Fprintf(&b, "  EXIT %s%s — %s\n", e.Ticker, heldQty(e.Qty), e.Reason)
 		}
 	}
 
@@ -63,9 +63,9 @@ func FormatMessage(r Report, topN int) string {
 		b.WriteString("without one there is no exit signal, so there is no entry either.\n")
 	}
 
-	if len(r.Geared) > 0 {
+	if len(r.GearedFX) > 0 {
 		b.WriteString("\nGEARED / FX — leverage, not signal:\n")
-		for _, s := range r.Geared {
+		for _, s := range r.GearedFX {
 			fmt.Fprintf(&b, "  %s | 3m %s | vol %s%s\n",
 				s.Ticker, pct(s.Ret3M), pctf(s.Vol), gearedNote(s))
 		}
@@ -84,6 +84,19 @@ func FormatMessage(r Report, topN int) string {
 
 	b.WriteString("\nAdvisory only — you place all orders. Exit rule: sell when a held fund closes below its 200-day.")
 	return b.String()
+}
+
+// heldQty renders the position size so the alert says how much to sell, not
+// just what. Sourced from holdings.json; omitted when the user left qty at 0.
+func heldQty(q float64) string {
+	switch {
+	case q <= 0:
+		return ""
+	case q == float64(int64(q)):
+		return fmt.Sprintf(" (%d units)", int64(q))
+	default:
+		return fmt.Sprintf(" (%.2f units)", q)
+	}
 }
 
 func gearedNote(s Scored) string {

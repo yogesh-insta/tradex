@@ -278,6 +278,11 @@ func TestExitAlertForHeldFundBelowTrend(t *testing.T) {
 	if !strings.Contains(msg, "EXIT FALLR") {
 		t.Errorf("missing exit alert for the held broken fund:\n%s", msg)
 	}
+	// The alert must say how MUCH to sell, not just what: holdings.json carries
+	// the quantity and it is the one number the user needs at the broker.
+	if !strings.Contains(msg, "EXIT FALLR (100 units)") {
+		t.Errorf("exit alert should carry the held quantity:\n%s", msg)
+	}
 	if strings.Contains(msg, "EXIT RISER") {
 		t.Errorf("RISER is still trending and must NOT trigger an exit:\n%s", msg)
 	}
