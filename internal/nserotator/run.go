@@ -28,6 +28,8 @@ type Deps struct {
 	// FetchOfficial optional override for drift checks (nil = real NSE fetch
 	// with the default HTTP client).
 	FetchOfficial func(ctx context.Context) ([]string, error)
+	// FetchNSEUniverse optional override for company names / drift (nil = live NSE CSV).
+	FetchNSEUniverse func(ctx context.Context) (map[string]string, error)
 }
 
 // RunParams carries the resolved config into Run.
@@ -42,15 +44,16 @@ type RunParams struct {
 }
 
 const (
-	indexSymbol            = "^NSEI"
-	historyYears           = 5
-	staleAfter             = 10 * 24 * time.Hour // ~7 trading days
-	badJumpWindowDays      = 90
-	badJumpMaxMove         = 0.5
-	portfolioStale         = 45 * 24 * time.Hour
-	maxFetchFailFrac       = 0.2
-	fetchWorkers           = 8
-	topRankedDisplayCount  = 20
+	indexSymbol           = "^NSEI"
+	historyYears          = 5
+	staleAfter            = 10 * 24 * time.Hour // ~7 trading days
+	badJumpWindowDays     = 90
+	badJumpMaxMove        = 0.5
+	portfolioStale        = 45 * 24 * time.Hour
+	maxFetchFailFrac      = 0.2
+	fetchWorkers          = 8
+	topRankedDisplayCount = 20
+	notifyTimeout         = 30 * time.Second
 )
 
 // RunResult summarizes a completed run.
@@ -89,18 +92,24 @@ func notifyFailure(ctx context.Context, d Deps, month string, cause error) {
 		return
 	}
 	text := fmt.Sprintf("NSE ROTATOR %s — RUN FAILED\n%v\nNo orders. Investigate before month-end.", month, cause)
+	notifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
+	defer cancel()
 	for i := 0; i < 3; i++ {
-		if err := d.Telegram.SendMessage(ctx, text); err == nil {
+		if err := d.Telegram.SendMessage(notifyCtx, text); err == nil {
 			return
 		}
-		time.Sleep(time.Duration(i+1) * 2 * time.Second)
+		if err := retryLinearBackoff(notifyCtx, i+1); err != nil {
+			break
+		}
 	}
 	d.Log.Error("failure notification could not be delivered", "cause", cause)
 }
 
 func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.Location, month string) (RunResult, error) {
 	var warnings []string
-
+	if len(p.Universe) == 0 {
+		return RunResult{}, fmt.Errorf("universe is empty")
+	}
 	// 1. Portfolio (user-maintained).
 	pf, err := d.Store.ReadPortfolio(ctx)
 	if err != nil {
@@ -197,7 +206,7 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 	topDisplay := head(ranked, topRankedDisplayCount)
 	quoteSymbols := symbolsForQuotes(topDisplay, diff)
 	quotes := d.Yahoo.FetchQuoteDetails(ctx, quoteSymbols)
-	companyNames, _ := FetchCompanyNames(ctx, nil, "")
+	companyNames := fetchNSECompanyNames(ctx, d)
 	resolveName := func(sym string) string {
 		if s, ok := series[sym]; ok && strings.TrimSpace(s.CompanyName) != "" {
 			return s.CompanyName
@@ -222,18 +231,13 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 	for i := range topDisplay {
 		enrichRanked(&topDisplay[i])
 	}
-	for i := range ranked {
-		if i >= topRankedDisplayCount {
-			break
-		}
-		ranked[i] = topDisplay[i]
-	}
 	enrichOrder := func(o *Order) {
 		q := quotes[o.Symbol]
 		o.CompanyName = resolveName(o.Symbol)
 		o.MarketCap = q.MarketCap
 		if q.Price > 0 {
 			o.LastClose = q.Price
+			o.ApproxValue = orderApproxValue(o.Qty, q.Price)
 		}
 	}
 	for i := range diff.Sells {
@@ -267,23 +271,32 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 
 	// 6. Universe drift (best-effort, never blocks).
 	if p.DriftCheck {
-		fetchOfficial := d.FetchOfficial
-		if fetchOfficial == nil {
-			fetchOfficial = func(ctx context.Context) ([]string, error) {
-				return FetchConstituents(ctx, nil, "")
+		official := nseSymbolList(companyNames)
+		if official == nil {
+			fetchOfficial := d.FetchOfficial
+			if fetchOfficial == nil {
+				fetchOfficial = func(ctx context.Context) ([]string, error) {
+					return FetchConstituents(ctx, nil, "")
+				}
+			}
+			var err error
+			official, err = fetchOfficial(ctx)
+			if err != nil {
+				d.Log.Warn("universe drift check failed", "error", err)
+				official = nil
 			}
 		}
-		if official, err := fetchOfficial(ctx); err != nil {
-			d.Log.Warn("universe drift check failed", "error", err)
-		} else if added, removed := DiffUniverse(p.Universe, official); len(added)+len(removed) > 0 {
-			warnings = append(warnings, fmt.Sprintf(
-				"UNIVERSE DRIFT — update config/universe-nse200.yaml. official adds: %s | official drops: %s",
-				joinOrNone(added), joinOrNone(removed)))
+		if official != nil {
+			if added, removed := DiffUniverse(p.Universe, official); len(added)+len(removed) > 0 {
+				warnings = append(warnings, fmt.Sprintf(
+					"UNIVERSE DRIFT — update config/universe-nse200.yaml. official adds: %s | official drops: %s",
+					joinOrNone(added), joinOrNone(removed)))
+			}
 		}
 	}
 
 	// 7. Holiday-file staleness (December ritual).
-	if int(local(now, ist).Month()) == 12 && d.Holidays.Year() <= local(now, ist).Year() {
+	if int(inIST(now, ist).Month()) == 12 && d.Holidays.Year() <= inIST(now, ist).Year() {
 		warnings = append(warnings, fmt.Sprintf("holidays-nse.yaml covers %d — add next year before January", d.Holidays.Year()))
 	}
 
@@ -300,7 +313,7 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 		Excluded:       excluded,
 		Warnings:       warnings,
 	}
-	rec.MessageText = FormatMessage(rec, p.TopK, p.LookbackMonths)
+	rec.MessageText = FormatMessage(rec, p.LookbackMonths, p.RegimeEMADays)
 
 	if err := d.Store.WriteRecommendation(ctx, rec); err != nil {
 		return RunResult{}, fmt.Errorf("write recommendation: %w", err)
@@ -319,14 +332,33 @@ func sendWithRetry(ctx context.Context, tg MessageSender, text string) error {
 	if tg == nil {
 		return fmt.Errorf("telegram sender not configured")
 	}
+	sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
+	defer cancel()
 	var err error
 	for i := 0; i < 3; i++ {
-		if err = tg.SendMessage(ctx, text); err == nil {
+		if err = tg.SendMessage(sendCtx, text); err == nil {
 			return nil
 		}
-		time.Sleep(time.Duration(i+1) * 2 * time.Second)
+		if berr := retryLinearBackoff(sendCtx, i+1); berr != nil {
+			return err
+		}
 	}
 	return err
+}
+
+func fetchNSECompanyNames(ctx context.Context, d Deps) map[string]string {
+	fetch := d.FetchNSEUniverse
+	if fetch == nil {
+		fetch = func(ctx context.Context) (map[string]string, error) {
+			return FetchNSEUniverse(ctx, nil, "")
+		}
+	}
+	names, err := fetch(ctx)
+	if err != nil {
+		d.Log.Warn("nse company names fetch failed", "error", err)
+		return nil
+	}
+	return names
 }
 
 func fetchAll(ctx context.Context, y *YahooClient, symbols []string) (map[string]Series, map[string]error) {
@@ -371,7 +403,7 @@ func head(r []Ranked, n int) []Ranked {
 	return r[:n]
 }
 
-func local(t time.Time, loc *time.Location) time.Time { return t.In(loc) }
+func inIST(t time.Time, loc *time.Location) time.Time { return t.In(loc) }
 
 func joinOrNone(s []string) string {
 	if len(s) == 0 {
