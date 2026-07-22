@@ -67,6 +67,7 @@ type Report struct {
 	Exits       []ExitAlert `json:"exit_alerts"`
 	Top         []Scored    `json:"top"`
 	BelowTrend  []Scored    `json:"below_trend"`
+	Watchlist   []Scored    `json:"watchlist,omitempty"`
 	Geared      []Scored    `json:"geared_fx"`
 	Inverse     []Scored    `json:"inverse"`
 	Rejected    []string    `json:"rejected,omitempty"` // bad data / too little history

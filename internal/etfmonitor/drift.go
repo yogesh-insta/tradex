@@ -2,7 +2,6 @@ package etfmonitor
 
 import (
 	"context"
-	"encoding/csv"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,175 +11,113 @@ import (
 	"time"
 )
 
-// ASXProductsURL is the ASX's downloadable ETP/investment-products CSV.
-// BetasharesFundsURL is the issuer's own fund index, used as a fallback.
+// BetasharesFundsURL is the issuer's fund index. The fund table is rendered
+// server-side with structured attributes:
 //
-// Both are best-effort: URL rot here must never block a run (spec 21 §Drift),
-// which is exactly why the checked-in universe stays the source of truth.
-const (
-	ASXProductsURL     = "https://www.asx.com.au/data/etp/etpFile.csv"
-	BetasharesFundsURL = "https://www.betashares.com.au/fund/"
-)
+//	data-name="Global Cybersecurity ETF" data-shortcode="HACK"
+//
+// which is why this is scraped rather than an API: the ASX's own downloadable
+// product lists are gone (the old etpFile.csv 302s to a 404 page, and the
+// markitdigital company directory carries operating companies only — none of
+// the ~108 ETF tickers appear in it).
+//
+// The endpoint returns 403 to a bare Go/curl User-Agent, so browser-ish headers
+// are required. That fragility is why a drift failure is REPORTED rather than
+// silently swallowed (spec 21 §Drift).
+const BetasharesFundsURL = "https://www.betashares.com.au/fund/"
 
-// tickerRe matches plausible ASX ETF codes (3-4 chars, may lead with a digit
-// as the fixed-term bond funds do: 28BB, 30BB).
-var tickerRe = regexp.MustCompile(`\b([A-Z0-9]{3,4})\b`)
+// fundRowRe extracts (name, ticker) pairs from the fund table.
+var fundRowRe = regexp.MustCompile(`data-name="([^"]+)"\s+data-shortcode="([A-Z0-9]{2,5})"`)
 
-func httpGet(ctx context.Context, client *http.Client, url string, limit int64) ([]byte, error) {
+// minLiveFunds guards against a page redesign silently yielding a short list,
+// which would otherwise read as "everything was delisted".
+const minLiveFunds = 80
+
+// LiveFund is one fund as the issuer currently lists it.
+type LiveFund struct {
+	Ticker string
+	Name   string
+}
+
+// FetchBetasharesFunds downloads the issuer's fund index and returns the funds
+// it lists. Best-effort: callers must treat errors as non-fatal.
+func FetchBetasharesFunds(ctx context.Context, client *http.Client, url string) ([]LiveFund, error) {
+	if url == "" {
+		url = BetasharesFundsURL
+	}
 	if client == nil {
 		client = http.DefaultClient
 	}
-	rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(rctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) tradex-etfmonitor/1.0")
+	// A plain client is rejected with 403; these headers are load-bearing.
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "+
+		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.Header.Set("Accept-Language", "en-AU,en;q=0.9")
+
 	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	return io.ReadAll(io.LimitReader(resp.Body, limit))
-}
-
-// FetchASXProducts downloads the ASX ETP CSV and returns its ticker codes.
-func FetchASXProducts(ctx context.Context, client *http.Client, url string) ([]string, error) {
-	if url == "" {
-		url = ASXProductsURL
-	}
-	body, err := httpGet(ctx, client, url, 8<<20)
-	if err != nil {
-		return nil, fmt.Errorf("asx products: %w", err)
-	}
-	r := csv.NewReader(strings.NewReader(string(body)))
-	r.FieldsPerRecord = -1
-
-	// The ASX file carries preamble lines before the real header; scan for the
-	// first row containing a recognisable code column.
-	codeCol := -1
-	for codeCol < 0 {
-		rec, err := r.Read()
-		if err == io.EOF {
-			return nil, fmt.Errorf("asx products: no code column found")
-		}
-		if err != nil {
-			return nil, fmt.Errorf("asx products: %w", err)
-		}
-		for i, h := range rec {
-			switch strings.ToLower(strings.TrimSpace(h)) {
-			case "asx code", "asx_code", "code", "symbol", "ticker":
-				codeCol = i
-			}
-		}
-	}
-	var out []string
-	for {
-		rec, err := r.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("asx products: %w", err)
-		}
-		if codeCol < len(rec) {
-			if c := strings.ToUpper(strings.TrimSpace(rec[codeCol])); c != "" {
-				out = append(out, c)
-			}
-		}
-	}
-	if len(out) < 100 {
-		return nil, fmt.Errorf("asx products: only %d rows — response looks wrong", len(out))
-	}
-	return dedupe(out), nil
-}
-
-// FetchBetasharesTickers scrapes the issuer's fund index for ticker codes.
-// Fallback only: HTML scraping is fragile by nature, hence the row-count sanity
-// check and the non-fatal contract.
-func FetchBetasharesTickers(ctx context.Context, client *http.Client, url string) ([]string, error) {
-	if url == "" {
-		url = BetasharesFundsURL
-	}
-	body, err := httpGet(ctx, client, url, 8<<20)
 	if err != nil {
 		return nil, fmt.Errorf("betashares funds: %w", err)
 	}
-	// Codes appear in per-fund links and table cells; collect candidates and
-	// rely on the caller diffing against a curated list.
-	matches := tickerRe.FindAllStringSubmatch(string(body), -1)
-	var out []string
-	for _, m := range matches {
-		out = append(out, m[1])
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("betashares funds: HTTP %d", resp.StatusCode)
 	}
-	out = dedupe(out)
-	if len(out) < 50 {
-		return nil, fmt.Errorf("betashares funds: only %d candidate codes — response looks wrong", len(out))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return nil, err
 	}
+	seen := map[string]bool{}
+	var out []LiveFund
+	for _, m := range fundRowRe.FindAllStringSubmatch(string(body), -1) {
+		ticker := strings.ToUpper(m[2])
+		if seen[ticker] {
+			continue
+		}
+		seen[ticker] = true
+		out = append(out, LiveFund{Ticker: ticker, Name: strings.TrimSpace(m[1])})
+	}
+	if len(out) < minLiveFunds {
+		return nil, fmt.Errorf("betashares funds: only %d funds parsed — page layout likely changed", len(out))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ticker < out[j].Ticker })
 	return out, nil
 }
 
-// FetchLiveTickers tries the ASX CSV, then the Betashares index.
-func FetchLiveTickers(ctx context.Context, client *http.Client) ([]string, string, error) {
-	if out, err := FetchASXProducts(ctx, client, ""); err == nil {
-		return out, "asx", nil
-	} else {
-		asxErr := err
-		out, err := FetchBetasharesTickers(ctx, client, "")
-		if err != nil {
-			return nil, "", fmt.Errorf("asx: %v; betashares: %w", asxErr, err)
-		}
-		return out, "betashares", nil
+// DiffUniverse compares the checked-in universe against the issuer's live list.
+//
+//	added   = live tickers absent from our file (new or renamed — categorize & add)
+//	removed = our tickers the issuer no longer lists (delisted/renamed, e.g. ECAR->DRIV)
+//
+// Funds marked DriftExempt are skipped in the `removed` direction: a
+// non-Betashares issuer (SEMI/Global X), an unlisted fund (BPCF) or a known
+// page omission (IPAY) would otherwise raise the same false alarm every month,
+// which is how a drift alert gets ignored.
+func DiffUniverse(universe []Fund, live []LiveFund) (added, removed []string) {
+	ours := map[string]Fund{}
+	for _, f := range universe {
+		ours[strings.ToUpper(f.Ticker)] = f
 	}
-}
-
-// DiffUniverse compares the checked-in universe against a live ticker list.
-//
-// added   = live tickers absent from our file (candidates to categorize)
-// removed = our tickers absent from the live list (possible delist/rename,
-//
-//	e.g. ECAR -> DRIV)
-//
-// Only tickers the live source could plausibly cover are considered: when the
-// fallback scraper is used its candidate set is noisy, so `added` is advisory
-// and never auto-applied (spec 21 §Drift).
-func DiffUniverse(checkedIn, live []string) (added, removed []string) {
-	in := map[string]bool{}
-	for _, s := range checkedIn {
-		in[strings.ToUpper(s)] = true
-	}
-	on := map[string]bool{}
-	for _, s := range live {
-		s = strings.ToUpper(s)
-		on[s] = true
-		if !in[s] {
-			added = append(added, s)
+	onPage := map[string]bool{}
+	for _, l := range live {
+		t := strings.ToUpper(l.Ticker)
+		onPage[t] = true
+		if _, ok := ours[t]; !ok {
+			added = append(added, t)
 		}
 	}
-	for _, s := range checkedIn {
-		if !on[strings.ToUpper(s)] {
-			removed = append(removed, strings.ToUpper(s))
+	for _, f := range universe {
+		t := strings.ToUpper(f.Ticker)
+		if !onPage[t] && !f.DriftExempt {
+			removed = append(removed, t)
 		}
 	}
 	sort.Strings(added)
 	sort.Strings(removed)
 	return added, removed
-}
-
-func dedupe(in []string) []string {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if s == "" || seen[s] {
-			continue
-		}
-		seen[s] = true
-		out = append(out, s)
-	}
-	sort.Strings(out)
-	return out
 }

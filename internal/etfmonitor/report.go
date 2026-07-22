@@ -52,6 +52,17 @@ func FormatMessage(r Report, topN int) string {
 			len(r.BelowTrend), strings.Join(tickers(r.BelowTrend), ", "))
 	}
 
+	if len(r.Watchlist) > 0 {
+		fmt.Fprintf(&b, "\nWatchlist — too new to rank (%d):\n", len(r.Watchlist))
+		for _, s := range r.Watchlist {
+			fmt.Fprintf(&b, "  %s | 3m %s | %d/%d sessions | ~%s to go\n",
+				fundLabel(s), pct(s.Ret3M), s.Sessions, s.SessionsNeeded,
+				monthsRemaining(s.SessionsNeeded-s.Sessions))
+		}
+		b.WriteString("A fund needs a full 200-day line before it can rank —\n")
+		b.WriteString("without one there is no exit signal, so there is no entry either.\n")
+	}
+
 	if len(r.Geared) > 0 {
 		b.WriteString("\nGEARED / FX — leverage, not signal:\n")
 		for _, s := range r.Geared {
@@ -103,6 +114,24 @@ func tickers(in []Scored) []string {
 		out[i] = s.Ticker
 	}
 	return out
+}
+
+// monthsRemaining converts a shortfall in trading sessions into a rough
+// calendar estimate (~21 trading days per month). Deliberately vague: no
+// listing date is tracked anywhere, so this is arithmetic on the session count,
+// not a real eligibility date. A data gap would make it optimistic.
+func monthsRemaining(sessions int) string {
+	if sessions <= 0 {
+		return "ready next run"
+	}
+	months := float64(sessions) / 21.0
+	if months < 1.5 {
+		if months < 1 {
+			return "under a month"
+		}
+		return "about a month"
+	}
+	return fmt.Sprintf("%.0f months", months)
 }
 
 // pct renders a possibly-absent trailing return.

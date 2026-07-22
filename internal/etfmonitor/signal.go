@@ -249,6 +249,10 @@ type Scored struct {
 	MaxDD          float64 `json:"max_drawdown"`
 	Classification string  `json:"classification"`
 	Weight         float64 `json:"suggested_weight,omitempty"`
+	// Watchlist bookkeeping: how much history the fund has vs how much the
+	// trend gate needs. Zero for funds that already cleared the gate.
+	Sessions       int `json:"sessions,omitempty"`
+	SessionsNeeded int `json:"sessions_needed,omitempty"`
 
 	group string // universe group; set by the run, read by the report
 }

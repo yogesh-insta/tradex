@@ -47,3 +47,6 @@ tmp/
 # Backtester artifacts
 out/
 data/candles/
+
+# etfmonitor local dry-run state (spec 21) — reports/heartbeat, not source
+data/etfmonitor-dev/

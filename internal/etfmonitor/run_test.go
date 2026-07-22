@@ -3,6 +3,7 @@ package etfmonitor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -225,7 +226,7 @@ func topSection(msg string) string {
 	}
 	rest := msg[start:]
 	end := len(rest)
-	for _, marker := range []string{"Below trend", "GEARED / FX", "Inverse/bear", "Not scored", "Advisory only"} {
+	for _, marker := range []string{"Below trend", "Watchlist", "GEARED / FX", "Inverse/bear", "Not scored", "Advisory only"} {
 		if i := strings.Index(rest, marker); i >= 0 && i < end {
 			end = i
 		}
@@ -385,4 +386,180 @@ func TestFetchFailureThresholdFailsRun(t *testing.T) {
 
 func writeFile(dir, name string, raw []byte) error {
 	return os.WriteFile(filepath.Join(dir, name), raw, 0o644)
+}
+
+// --- Delisted / stale funds --------------------------------------------------
+
+// TestStaleFundIsRejected pins the IPAY defect: a delisted fund keeps returning
+// years of history, so its trailing returns still compute and it will rank on
+// prices that no longer exist. IPAY last traded 2025-02-14 and ranked #7.
+func TestStaleFundIsRejected(t *testing.T) {
+	srv := chartServer(t, map[string][]float64{"LIVE": steadyRise()})
+	defer srv.Close()
+
+	sender := &capturedSender{}
+	d := testDeps(t, srv, sender)
+	// Freeze "now" two years after the synthetic series ends: every fund the
+	// server returns is stale relative to it.
+	d.Now = func() time.Time { return time.Now().AddDate(2, 0, 0) }
+
+	p := RunParams{
+		Universe:    Universe{Standard: []Fund{{Ticker: "LIVE", Group: GroupStandard}}},
+		LookbacksTD: []int{63, 126, 252}, Weights: []float64{0.5, 0.3, 0.2},
+		TrendSMADays: 200, TopN: 10,
+	}
+	// All standard funds stale -> nothing fetchable passes -> run fails loudly
+	// rather than reporting a top list built on dead prices.
+	_, err := Run(context.Background(), p, d)
+	if err == nil {
+		t.Fatal("expected failure when the entire universe is stale")
+	}
+	msg := sender.texts[0]
+	if !strings.Contains(msg, "RUN FAILED") {
+		t.Errorf("expected a failure alert, got:\n%s", msg)
+	}
+}
+
+func TestStaleFundRejectedWhileFreshOneRanks(t *testing.T) {
+	// 1 dead of 10 = 10%, under the 20% data-outage bar, so the run proceeds
+	// and the delisted fund is rejected individually.
+	live := []string{"FR1", "FR2", "FR3", "FR4", "FR5", "FR6", "FR7", "FR8", "FR9"}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(r.URL.Path, "/")
+		sym := strings.TrimSuffix(parts[len(parts)-1], ".AX")
+		px := steadyRise()
+		endsAt := time.Now()
+		if sym == "DEAD" {
+			endsAt = time.Now().AddDate(0, 0, -400) // delisted long ago
+		} else if !strings.HasPrefix(sym, "FR") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"chart":{"result":null,"error":{"code":"NF","description":"x"}}}`)
+			return
+		}
+		start := endsAt.AddDate(0, 0, -len(px)).Unix()
+		ts := make([]int64, len(px))
+		for i := range px {
+			ts[i] = start + int64(i)*86400
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"chart": map[string]any{"result": []any{map[string]any{
+			"timestamp":  ts,
+			"indicators": map[string]any{"adjclose": []any{map[string]any{"adjclose": px}}},
+		}}}})
+	}))
+	defer srv.Close()
+
+	funds := []Fund{{Ticker: "DEAD", Group: GroupStandard}}
+	for _, tk := range live {
+		funds = append(funds, Fund{Ticker: tk, Group: GroupStandard})
+	}
+
+	sender := &capturedSender{}
+	p := RunParams{
+		Universe:    Universe{Standard: funds},
+		LookbacksTD: []int{63, 126, 252}, Weights: []float64{0.5, 0.3, 0.2},
+		TrendSMADays: 200, TopN: 10,
+	}
+	if _, err := Run(context.Background(), p, testDeps(t, srv, sender)); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	msg := sender.texts[0]
+	if strings.Contains(topSection(msg), "DEAD") {
+		t.Errorf("a delisted fund must never rank:\n%s", msg)
+	}
+	if !strings.Contains(msg, "likely delisted/renamed") {
+		t.Errorf("staleness rejection should name its reason:\n%s", msg)
+	}
+	if !strings.Contains(topSection(msg), "FR1") {
+		t.Errorf("live funds should still rank:\n%s", msg)
+	}
+}
+
+// --- Watchlist ---------------------------------------------------------------
+
+func TestYoungFundGoesToWatchlistNotSilence(t *testing.T) {
+	srv := chartServer(t, map[string][]float64{
+		"YOUNG": nSessionsRising(150),
+		"OLD":   steadyRise(),
+	})
+	defer srv.Close()
+
+	sender := &capturedSender{}
+	p := RunParams{
+		Universe: Universe{Standard: []Fund{
+			{Ticker: "YOUNG", Name: "New Thing", Group: GroupStandard},
+			{Ticker: "OLD", Name: "Established", Group: GroupStandard},
+		}},
+		LookbacksTD: []int{63, 126, 252}, Weights: []float64{0.5, 0.3, 0.2},
+		TrendSMADays: 200, TopN: 10,
+	}
+	if _, err := Run(context.Background(), p, testDeps(t, srv, sender)); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	msg := sender.texts[0]
+	if strings.Contains(topSection(msg), "YOUNG") {
+		t.Errorf("a fund with no 200-day line must not rank:\n%s", msg)
+	}
+	if !strings.Contains(msg, "Watchlist — too new to rank") || !strings.Contains(msg, "150/200 sessions") {
+		t.Errorf("young fund should appear on the watchlist with its progress:\n%s", msg)
+	}
+}
+
+func nSessionsRising(n int) []float64 {
+	out := make([]float64, n)
+	for i := range out {
+		out[i] = 100 * pow(1.002, i)
+	}
+	return out
+}
+
+// --- Drift ------------------------------------------------------------------
+
+// TestDriftFailureIsReported is the fix for a silently-dead monitor: both live
+// sources are third-party and bot-protected, so the check WILL fail eventually.
+// Failing quietly would leave the user believing the universe is watched.
+func TestDriftFailureIsReported(t *testing.T) {
+	srv := chartServer(t, map[string][]float64{"OK": steadyRise()})
+	defer srv.Close()
+
+	sender := &capturedSender{}
+	d := testDeps(t, srv, sender)
+	d.FetchLive = func(context.Context) ([]LiveFund, error) {
+		return nil, fmt.Errorf("HTTP 403")
+	}
+	p := RunParams{
+		Universe:    Universe{Standard: []Fund{{Ticker: "OK", Group: GroupStandard}}},
+		LookbacksTD: []int{63, 126, 252}, Weights: []float64{0.5, 0.3, 0.2},
+		TrendSMADays: 200, TopN: 10, DriftCheck: true,
+	}
+	if _, err := Run(context.Background(), p, d); err != nil {
+		t.Fatalf("drift failure must not fail the run: %v", err)
+	}
+	msg := sender.texts[0]
+	if !strings.Contains(msg, "DRIFT CHECK DID NOT RUN") || !strings.Contains(msg, "403") {
+		t.Errorf("a failed drift check must be visible in the message:\n%s", msg)
+	}
+}
+
+func TestDriftReportsAddedRemovedAndCleanState(t *testing.T) {
+	universe := []Fund{
+		{Ticker: "KEEP", Group: GroupStandard},
+		{Ticker: "GONE", Group: GroupStandard},
+		{Ticker: "OTHER", Group: GroupStandard, Issuer: "Global X", DriftExempt: true},
+	}
+	live := []LiveFund{{Ticker: "KEEP"}, {Ticker: "BRAND"}}
+
+	added, removed := DiffUniverse(universe, live)
+	if len(added) != 1 || added[0] != "BRAND" {
+		t.Errorf("added = %v want [BRAND]", added)
+	}
+	if len(removed) != 1 || removed[0] != "GONE" {
+		t.Errorf("removed = %v want [GONE] (exempt funds must not warn every month)", removed)
+	}
+
+	// Clean state must say so explicitly — silence is indistinguishable from
+	// a check that never ran.
+	added, removed = DiffUniverse([]Fund{{Ticker: "KEEP"}}, []LiveFund{{Ticker: "KEEP"}})
+	if len(added) != 0 || len(removed) != 0 {
+		t.Errorf("expected no drift, got added=%v removed=%v", added, removed)
+	}
 }

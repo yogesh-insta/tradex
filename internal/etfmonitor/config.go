@@ -127,7 +127,12 @@ type Fund struct {
 	Ticker string `yaml:"ticker"`
 	Name   string `yaml:"name"`
 	Issuer string `yaml:"issuer,omitempty"` // set only for non-Betashares funds
-	Group  string `yaml:"-"`
+	// DriftExempt suppresses the "possibly delisted" drift warning for funds
+	// that legitimately never appear on the Betashares fund index (a different
+	// issuer, or an unlisted vehicle). Without this they warn every month, which
+	// is how a drift alert gets trained into background noise.
+	DriftExempt bool   `yaml:"drift_exempt,omitempty"`
+	Group       string `yaml:"-"`
 }
 
 // Universe is the grouped, checked-in fund list.
