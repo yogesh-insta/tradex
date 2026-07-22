@@ -5,7 +5,7 @@
 # marketing categories into the five groups the monitor actually reasons about.
 # Yahoo symbol = <ticker>.AX.
 #
-# as-of: 2026-07-22 (betashares.com.au/fund/ + IPAY, which that page omits).
+# as-of: 2026-07-22 (betashares.com.au/fund/, 105 funds, + SEMI/Global X).
 # Refresh via config PR; the drift check warns when the live list diverges.
 #
 # Groups (normative, spec 21 §Universe):
@@ -19,6 +19,15 @@
 #   excluded  cash and bonds. Not ranked at all; momentum is meaningless here.
 #
 # Non-Betashares issuers are tagged so the report can say "buyable via broker".
+#
+# drift_exempt: true suppresses the monthly "possibly delisted" warning for funds
+# that will never appear on the Betashares fund index — a different issuer
+# (SEMI/Global X) or an unlisted vehicle (BPCF). Everything else that goes
+# missing from that index is a real signal worth reading.
+#
+# REMOVED 2026-07-22: IPAY (Future of Payments) — delisted, last close
+# 2025-02-14. It still returns 3y of Yahoo history, so before the staleness
+# guard existed it ranked #7 on 17-month-old prices.
 
 universe:
   standard:
@@ -63,7 +72,6 @@ universe:
     - {ticker: HYLD, name: S&P Australian Shares High Yield}
     - {ticker: IIND, name: India Quality}
     - {ticker: INCM, name: S&P Global High Dividend Aristocrats}
-    - {ticker: IPAY, name: Future of Payments}
     - {ticker: JNDQ, name: Nasdaq Next Gen 100}
     - {ticker: MNRS, name: Global Gold Miners Currency Hedged}
     - {ticker: MTUM, name: Australian Momentum}
@@ -82,7 +90,7 @@ universe:
     - {ticker: RBTZ, name: Global Robotics and Artificial Intelligence}
     - {ticker: RCKT, name: Space Industry}
     - {ticker: ROYL, name: Global Royalties}
-    - {ticker: SEMI, name: Semiconductors, issuer: Global X}
+    - {ticker: SEMI, name: Semiconductors, issuer: Global X, drift_exempt: true}
     - {ticker: SMLL, name: Australian Small Companies Select}
     - {ticker: TOLL, name: FTSE Global Infrastructure Currency Hedged}
     - {ticker: UMAX, name: S&P 500 Yield Maximiser}
@@ -125,7 +133,7 @@ universe:
     - {ticker: AGVT, name: Australian Government Bond}
     - {ticker: BHYB, name: Australian Major Bank Hybrids Index}
     - {ticker: BNDS, name: Western Asset Australian Bond}
-    - {ticker: BPCF, name: Cliffwater Private Credit (unlisted)}
+    - {ticker: BPCF, name: Cliffwater Private Credit (unlisted), drift_exempt: true}
     - {ticker: BSUB, name: Australian Major Bank Subordinated Debt}
     - {ticker: COMP, name: Bloomberg AusBond Composite}
     - {ticker: CRED, name: Australian Investment Grade Corporate Bond}

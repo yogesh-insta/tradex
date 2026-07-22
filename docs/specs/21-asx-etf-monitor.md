@@ -82,7 +82,15 @@ Config defaults: `momentum_lookbacks_td: [63, 126, 252]`,
    (`<TICKER>.AX`), preferring adjusted closes. Bounded concurrency, retry with
    backoff. Held funds outside the universe are fetched too.
 
-2. **Bad-data guard (mandatory).** Reject any series containing a single-session
+2. **Staleness guard (mandatory).** Reject any fund whose latest close is more
+   than 10 days old. A delisted fund keeps returning years of history, so its
+   trailing returns still compute and it will rank on prices that no longer
+   exist. Observed live: **IPAY last traded 2025-02-14 and ranked #7** on
+   17-month-old data before this guard existed. Staleness also counts toward the
+   >20% data-outage threshold — one stale fund is a delisting, but a stale
+   universe means the feed is serving dead data.
+
+3. **Bad-data guard (mandatory).** Reject any series containing a single-session
    move greater than **50%**. No ASX ETF — not even a 3x geared one — moves that
    far in a session; when it appears it is always an unadjusted share
    consolidation. Observed live: **BBOZ 2024-05-30 +10053%**, **BBUS 2025-12-01
@@ -93,19 +101,19 @@ Config defaults: `momentum_lookbacks_td: [63, 126, 252]`,
    the volatility *and* the max drawdown, and keeps corrupting vol/maxDD for
    years after it has fallen out of every return window.
 
-3. **Metrics** per fund, matching `screen.py` exactly:
+4. **Metrics** per fund, matching `screen.py` exactly:
    - `ret(N) = close[last] / close[last-N] - 1` for each lookback
    - `SMA(200)` — requires a full 200 sessions
    - `vol = stdev(daily returns) * sqrt(252)`, **sample** stdev (ddof=1, pandas' default)
    - `maxDD = min(close / cummax(close) - 1)`
 
-4. **Trend gate (hard filter).** A standard fund is eligible only if
+5. **Trend gate (hard filter).** A standard fund is eligible only if
    `close > SMA(trend_sma_days)`. Funds below trend are **disqualified** and
    listed separately under "Below trend — not eligible". Never surface a fund
    the exit rule would immediately sell. A fund with fewer than
    `trend_sma_days` sessions has no trend read and is not eligible.
 
-5. **Recency-tilted score** for eligible funds:
+6. **Recency-tilted score** for eligible funds:
 
    ```
    score = 0.5*ret_3m + 0.3*ret_6m + 0.2*ret_12m
@@ -117,9 +125,15 @@ Config defaults: `momentum_lookbacks_td: [63, 126, 252]`,
    3m+6m → 0.625/0.375). A valid 3m return is **required** — without recent
    momentum there is nothing to tilt toward.
 
-6. **Rank** descending, alphabetical tie-break. Take `top_n`.
+   > Note: for *standard* funds the 3m-only branch is unreachable — it needs
+   > 64-126 sessions, and the trend gate rejects anything under 200. Only the
+   > 3m+6m case (200-252 sessions) fires in practice. Young standard funds are
+   > not gently down-weighted; they are excluded outright and surfaced on the
+   > **Watchlist** instead.
 
-7. **Per-fund output**: ticker, name, 3m/6m/12m, trend (UP by construction),
+7. **Rank** descending, alphabetical tie-break. Take `top_n`.
+
+8. **Per-fund output**: ticker, name, 3m/6m/12m, trend (UP by construction),
    vol, maxDD, classification, suggested weight.
    - *classification*: `accelerating` when the 3m return annualised exceeds the
      12m return, else `trending`. When 12m history is absent the longest
@@ -128,8 +142,24 @@ Config defaults: `momentum_lookbacks_td: [63, 126, 252]`,
      `w_i = (1/vol_i) / Σ(1/vol)`, labelled **"satellite sizing suggestion,
      5-10% of portfolio, not core"**.
 
-8. **Geared + FX** ranked in their own section. **Inverse** funds are tracked and
+9. **Geared + FX** ranked in their own section. They skip the trend gate but
+   still require the SAME minimum history, so groups stay consistent. **Inverse** funds are tracked and
    listed but never ranked.
+
+## Watchlist (funds too new to rank)
+
+A fund needs a full `trend_sma_days` of history before it can rank — roughly
+**200 sessions ≈ 9.5 months from listing**, a hard cliff, not a taper. That is
+deliberate: the 200-day line IS the exit rule, so a fund with no trend read has
+no sell signal, and recommending an entry without an exit would be incoherent.
+
+But excluded must not mean invisible. Standard funds that clear the score but
+lack a trend read are listed under **"Watchlist — too new to rank"** with their
+3m return and session progress (`120/200`), closest first.
+
+The "months to go" figure is arithmetic on the session shortfall (~21 sessions
+per month). **No listing date is tracked anywhere** — a data gap would make the
+estimate optimistic. It is a rough guide, not an eligibility date.
 
 ## Held-fund exit alerts (key feature)
 
@@ -159,18 +189,42 @@ read from a broker:
 
 ## Universe drift check
 
-Best-effort each run: fetch the current ASX ETP list (primary: the ASX products
-CSV; fallback: `betashares.com.au/fund/`) and diff against the checked-in universe.
+Best-effort each run: scrape the Betashares fund index and diff it against the
+checked-in universe.
 
-- Tickers live but not in our file → `NEW FUNDS (categorize & add): …`.
-  **Never auto-added and never auto-ranked** — a new fund has no 200-day history
-  and cannot rank for ~a year anyway, so this is housekeeping, not a blocker.
-- Tickers in our file but not live → `Possibly delisted/renamed: …`
+**Source.** `https://www.betashares.com.au/fund/`. The fund table is rendered
+server-side with structured attributes:
+
+```
+data-name="Global Cybersecurity ETF" data-shortcode="HACK"
+```
+
+It is scraped rather than pulled from an API because **the ASX's own product
+lists are gone**: the old `etpFile.csv` 302s to a 404 page, and the
+markitdigital company directory carries operating companies only (1835 rows,
+none of the ~105 ETF tickers). The endpoint also returns **403 to a bare Go
+User-Agent**, so browser-like headers are load-bearing.
+
+- Live tickers absent from our file → `NEW FUNDS (categorize & add): …`.
+  **Never auto-added and never auto-ranked.** A new fund cannot rank for ~9.5
+  months anyway, so this is housekeeping, not a blocker. Grouping is a human
+  decision: a geared fund mis-filed as `standard` would put a 2-3x leveraged
+  product into the top 10.
+- Our tickers absent from the live list → `Possibly delisted/renamed: …`
   (this is how **ECAR → DRIV** would have been caught).
+- Funds marked `drift_exempt: true` are skipped in the "removed" direction —
+  a different issuer (SEMI/Global X) or an unlisted vehicle (BPCF) would
+  otherwise raise the same false alarm every month, which is how a drift alert
+  gets trained into background noise.
+- **No drift is reported explicitly** ("Universe verified against N live
+  funds — no drift"), because silence is indistinguishable from a check that
+  never ran.
 
-Fetch failure is logged and **non-fatal**; the checked-in universe stays the
-source of truth. The fallback scraper's candidate set is noisy by nature, which
-is exactly why `added` is advisory only.
+**Failure is non-fatal but NEVER silent.** The run continues, and the message
+carries `DRIFT CHECK DID NOT RUN: <error>`. A quietly-dead drift check is worse
+than none: it leaves the operator believing the universe is being watched while
+nothing is. The scrape depends on a third-party page layout and bot protection,
+so it *will* break eventually.
 
 ## Outputs
 
@@ -187,14 +241,15 @@ is exactly why `added` is advisory only.
 
 | Failure | Behavior |
 | --- | --- |
-| >20% of the **standard** universe failed to fetch | No recommendations. Telegram "RUN FAILED — data". Exit 1. |
+| >20% of the **standard** universe unusable (unfetchable or stale) | No recommendations. Telegram "RUN FAILED — data". Exit 1. |
 | `holdings.json` unparseable | No recommendations. Telegram "RUN FAILED — holdings state". Exit 1. |
 | `holdings.json` missing | **Not an error.** Report proceeds with no exit alerts. |
 | `holdings.json` `as_of` older than 60 days | Proceed with a STALE-HOLDINGS warning. |
+| Fund's latest close older than 10 days | Rejected as stale/delisted, named in the report. Counts toward the 20% data-outage bar. |
 | Series contains an unadjusted split | Fund rejected from ranking, listed with its break date. |
-| Fund has <200 sessions | Not eligible for the top 10 (no trend read); listed as not scored. |
+| Fund has <200 sessions | Not eligible for the top 10 (no trend read); surfaced on the Watchlist. |
 | No fund passes the trend gate | Valid outcome, reported as such: "nothing is trending, stay in cash". |
-| Drift fetch failed | Logged, non-fatal. |
+| Drift fetch failed | Logged AND reported in the Telegram message. Non-fatal. |
 | Telegram send fails | Retry ×3; report JSON is still written to GCS; exit 1. |
 | Run context expired | Failure alert is sent on a **detached** context so the alert survives the very deadline that caused the failure. |
 | Ranking ties | Deterministic alphabetical tie-break. |
@@ -231,6 +286,12 @@ Mandatory cases:
   so the guard's value is demonstrated rather than assumed.
 - **Trend gate** — a fund with a large trailing return that sits below its
   200-day does not appear in the top list, and does appear under "below trend".
+- **Staleness** — a delisted fund is rejected while live funds still rank; a
+  wholly stale universe fails the run loudly.
+- **Watchlist** — a 150-session fund lands on the watchlist with its progress
+  rather than ranking or vanishing.
+- **Drift** — a failed drift check is reported in the message; added/removed are
+  diffed correctly and `drift_exempt` funds do not warn.
 - **Recency tilt** — a decelerator ranks below a fresh accelerator at equal mean
   return, and below one with a *lower* mean when its 3m is negative.
 - **Weight renormalisation** — 3m-only → 1.0; 3m+6m → 0.625/0.375; no 3m → unscored.
@@ -251,9 +312,10 @@ Mandatory cases:
 2. **The trend gate is pro-cyclical.** It will keep you out of bottoms and put
    you in after moves have started. That is the intended trade — drawdown
    control over entry price — but it should be stated, not discovered.
-3. **The ASX products CSV URL is unverified** and may rot. That is survivable by
-   design (non-fatal, Betashares fallback), but the first live run should confirm
-   which source actually answers.
+3. **The drift source is a scrape of a third-party page.** It works today
+   (verified: 105 funds parsed, zero unexplained diffs against the universe),
+   but a redesign or a tightened bot-check will break it. Failure is reported
+   rather than swallowed, so you will know.
 4. **Concentration is unmanaged.** The top 10 can legitimately be eight flavours
    of US tech. Inverse-vol weighting does not fix correlation. A future version
    should cap exposure per underlying theme.

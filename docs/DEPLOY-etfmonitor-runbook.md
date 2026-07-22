@@ -12,8 +12,8 @@ live Yahoo data locally. What remains is: **verify → deploy → test-fire**.
   recency-tilted score → top 10 + inverse-vol sizing → exit alerts for held
   funds → Telegram + GCS record).
 - Config: `config/config.etfmonitor.cloudrun.yaml` (+ `.dev.yaml`),
-  `config/universe-asx-etf.yaml` — 108 funds in five groups
-  (68 standard / 8 geared / 5 inverse / 3 fx / 24 excluded cash+bond).
+  `config/universe-asx-etf.yaml` — 107 funds in five groups
+  (67 standard / 8 geared / 5 inverse / 3 fx / 24 excluded cash+bond).
 - Seed state: `data/etfmonitor-holdings.json` — **empty**. You fill it in.
 - Deploy: `deploy/docker/Dockerfile.etfmonitor`,
   `deploy/scripts/deploy-etfmonitor.sh` (same project, bucket and TELEGRAM_*
@@ -98,9 +98,19 @@ first; the top 10 is a shortlist, not an instruction.
   moves start. That is the intended trade (drawdown control over entry price).
 - **Concentration is unmanaged.** The top 10 can legitimately be eight flavours
   of US tech; inverse-vol weighting does not fix correlation.
-- **The ASX products CSV URL is unverified** and may 404. Drift is non-fatal by
-  design and falls back to the Betashares page — check the first run's logs to
-  see which source actually answered (`source=asx` or `source=betashares`).
+- **Drift works today but is a scrape.** Verified live: 105 funds parsed from
+  the Betashares fund index, zero unexplained differences against the universe.
+  The ASX's own product CSVs are dead (404), and the page returns 403 without
+  browser headers — so a redesign or tightened bot-check will break it. When it
+  breaks you WILL be told: the message carries `DRIFT CHECK DID NOT RUN: <err>`.
+- **IPAY was removed from the universe** — delisted, last close 2025-02-14. It
+  still returns 3y of Yahoo history, and before the staleness guard existed it
+  ranked #7 on 17-month-old prices. Any fund whose last close is >10 days old is
+  now rejected and named.
+- **New funds take ~9.5 months to become rankable** (200 sessions for the
+  200-day line). They appear under "Watchlist — too new to rank" with progress,
+  not silently. Adding a fund to the universe is manual and deliberate —
+  mis-filing a geared fund as `standard` would put a 2-3x product in your top 10.
 - **SEMI is a Global X fund**, not Betashares, and is tagged as such in the
   report. It was in the original screener; it is kept, not silently dropped.
 - **holdings.json is the only record of what you own.** The job never reads a

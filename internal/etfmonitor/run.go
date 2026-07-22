@@ -23,9 +23,9 @@ type Deps struct {
 	Store    *StateStore
 	Log      *slog.Logger
 	Now      func() time.Time
-	// FetchLive optionally overrides the drift-check fetch (nil = real ASX CSV
-	// with the Betashares fallback).
-	FetchLive func(ctx context.Context) ([]string, string, error)
+	// FetchLive optionally overrides the drift-check fetch (nil = the real
+	// Betashares fund index).
+	FetchLive func(ctx context.Context) ([]LiveFund, error)
 }
 
 // RunParams carries the resolved config into Run.
@@ -118,15 +118,22 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, month stri
 	}
 	series, fetchErrs := fetchAll(ctx, d.Yahoo, sortedKeys(want))
 
-	stdFails := 0
+	// Unusable = never fetched OR stale. Staleness counts here deliberately: one
+	// stale fund is just a delisting, but a stale *universe* means the feed is
+	// serving dead data, and reporting a confident top 10 from it would be
+	// worse than failing. Per-fund conditions like a split or short history are
+	// NOT counted — those are legitimate states, not data outages.
+	stdUnusable := 0
 	for _, f := range p.Universe.Standard {
-		if _, ok := series[f.Ticker]; !ok {
-			stdFails++
+		s, ok := series[f.Ticker]
+		if !ok || Stale(s, now, staleAfter) {
+			stdUnusable++
 		}
 	}
 	if n := len(p.Universe.Standard); n > 0 {
-		if frac := float64(stdFails) / float64(n); frac > maxFetchFailFrac {
-			return RunResult{}, fmt.Errorf("data: %d/%d standard funds failed to fetch", stdFails, n)
+		if frac := float64(stdUnusable) / float64(n); frac > maxFetchFailFrac {
+			return RunResult{}, fmt.Errorf(
+				"data: %d/%d standard funds unusable (unfetchable or stale)", stdUnusable, n)
 		}
 	}
 	if len(fetchErrs) > 0 {
@@ -140,6 +147,19 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, month stri
 		s, ok := series[f.Ticker]
 		if !ok {
 			rep.Rejected = append(rep.Rejected, f.Ticker+" (fetch failed)")
+			continue
+		}
+		// Staleness BEFORE anything else. A delisted fund keeps returning years
+		// of history from the price feed, so its trailing returns still compute
+		// and it will happily rank on prices that no longer exist. Observed:
+		// IPAY last traded 2025-02-14 and ranked #7 on 17-month-old data.
+		if Stale(s, now, staleAfter) {
+			last := "no candles"
+			if n := len(s.Candles); n > 0 {
+				last = s.Candles[n-1].Date.Format("2006-01-02")
+			}
+			rep.Rejected = append(rep.Rejected,
+				fmt.Sprintf("%s (stale — last close %s, likely delisted/renamed)", f.Ticker, last))
 			continue
 		}
 		if at, broken := DataBreak(s, DataBreakThreshold); broken {
@@ -177,9 +197,15 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, month stri
 		}
 		m := metrics[f.Ticker]
 		if !m.HasTrend {
-			// No 200-day line yet — cannot pass a gate it has no data for.
-			rep.Rejected = append(rep.Rejected,
-				fmt.Sprintf("%s (%d sessions — no 200-day trend yet)", f.Ticker, m.Days))
+			// No 200-day line yet, so it cannot pass a gate it has no data for.
+			// Surfaced as a watchlist entry rather than buried in "not scored":
+			// the trend gate IS the exit rule, and recommending a fund with no
+			// sell signal would be incoherent — but the user should still see
+			// what is coming and roughly when.
+			w := sc
+			w.Sessions = m.Days
+			w.SessionsNeeded = p.TrendSMADays
+			rep.Watchlist = append(rep.Watchlist, w)
 			continue
 		}
 		if sc.TrendUp {
@@ -188,6 +214,12 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, month stri
 			below = append(below, sc)
 		}
 	}
+	sort.Slice(rep.Watchlist, func(i, j int) bool {
+		if rep.Watchlist[i].Sessions != rep.Watchlist[j].Sessions {
+			return rep.Watchlist[i].Sessions > rep.Watchlist[j].Sessions // closest first
+		}
+		return rep.Watchlist[i].Ticker < rep.Watchlist[j].Ticker
+	})
 	eligible = RankByScore(eligible)
 	rep.Top = head(eligible, p.TopN)
 	weights := InverseVolWeights(rep.Top)
@@ -197,14 +229,18 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, month stri
 	rep.BelowTrend = RankByScore(below)
 
 	// 5. Geared + FX ranked separately; inverse tracked, never ranked.
+	// These skip the trend gate (they are informational, not recommendations),
+	// but they still need the SAME minimum history — otherwise a fund too young
+	// to appear in the standard list shows up here with a 3m-only score, which
+	// is an arbitrary inconsistency between groups.
 	var gearedFX, inverse []Scored
 	for _, f := range append(append([]Fund{}, p.Universe.Geared...), p.Universe.FX...) {
-		if sc, ok := scored[f.Ticker]; ok {
+		if sc, ok := scored[f.Ticker]; ok && metrics[f.Ticker].HasTrend {
 			gearedFX = append(gearedFX, sc)
 		}
 	}
 	for _, f := range p.Universe.Inverse {
-		if sc, ok := scored[f.Ticker]; ok {
+		if sc, ok := scored[f.Ticker]; ok && metrics[f.Ticker].HasTrend {
 			inverse = append(inverse, sc)
 		}
 	}
@@ -246,32 +282,41 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, month stri
 	}
 	sort.Slice(rep.Exits, func(i, j int) bool { return rep.Exits[i].Ticker < rep.Exits[j].Ticker })
 
-	// 7. Universe drift (best-effort, never blocks).
+	// 7. Universe drift (best-effort, never blocks the run — but ALWAYS reports).
 	if p.DriftCheck {
 		fetchLive := d.FetchLive
 		if fetchLive == nil {
-			fetchLive = func(ctx context.Context) ([]string, string, error) {
-				return FetchLiveTickers(ctx, http.DefaultClient)
+			fetchLive = func(ctx context.Context) ([]LiveFund, error) {
+				return FetchBetasharesFunds(ctx, http.DefaultClient, "")
 			}
 		}
-		if live, source, err := fetchLive(ctx); err != nil {
+		live, err := fetchLive(ctx)
+		switch {
+		case err != nil:
+			// A silently-dead drift check is worse than none: you would believe
+			// the universe is being watched while nothing is watching it. The
+			// scrape depends on a third-party page layout and bot-protection,
+			// so failure is expected eventually — and must be visible.
 			d.Log.Warn("universe drift check failed", "error", err)
-		} else {
-			ours := make([]string, 0, len(p.Universe.All()))
-			for _, f := range p.Universe.All() {
-				ours = append(ours, f.Ticker)
-			}
-			added, removed := DiffUniverse(ours, live)
-			// New funds cannot rank for ~a year anyway (no 200-day history), so
-			// this is housekeeping, not a blocker — and never auto-applied.
+			warnings = append(warnings, fmt.Sprintf(
+				"DRIFT CHECK DID NOT RUN: %v — the universe was not verified this month", err))
+		default:
+			added, removed := DiffUniverse(p.Universe.All(), live)
+			// New funds cannot rank for ~10 months anyway (no 200-day history),
+			// so this is housekeeping, not a blocker — and never auto-applied.
 			if len(added) > 0 {
 				rep.DriftNotes = append(rep.DriftNotes, fmt.Sprintf(
-					"NEW FUNDS (categorize & add to config/universe-asx-etf.yaml, source=%s): %s",
-					source, strings.Join(added, ", ")))
+					"NEW FUNDS (categorize & add to config/universe-asx-etf.yaml): %s",
+					strings.Join(added, ", ")))
 			}
 			if len(removed) > 0 {
 				rep.DriftNotes = append(rep.DriftNotes, fmt.Sprintf(
-					"Possibly delisted/renamed (source=%s): %s", source, strings.Join(removed, ", ")))
+					"Possibly delisted/renamed (no longer on the Betashares fund index): %s",
+					strings.Join(removed, ", ")))
+			}
+			if len(added) == 0 && len(removed) == 0 {
+				rep.DriftNotes = append(rep.DriftNotes, fmt.Sprintf(
+					"Universe verified against %d live Betashares funds — no drift.", len(live)))
 			}
 		}
 	}
