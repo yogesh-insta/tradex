@@ -66,7 +66,7 @@ func LoadConfig(path string) (*Config, error) {
 func (c *Config) validate() error {
 	r := &c.Rotator
 	if r.LookbackMonths <= 0 {
-		r.LookbackMonths = 12
+		r.LookbackMonths = 6
 	}
 	if r.TopK <= 0 {
 		r.TopK = 8

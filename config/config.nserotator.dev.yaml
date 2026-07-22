@@ -3,7 +3,7 @@
 env: dev
 
 nserotator:
-  lookback_months: 12
+  lookback_months: 6
   top_k: 8
   regime_ema_days: 200
   universe_file: config/universe-nse200.yaml

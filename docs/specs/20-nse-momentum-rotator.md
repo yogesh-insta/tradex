@@ -6,13 +6,14 @@ Status: DRAFT — pending review.
 
 A **monthly, advisory-only** equity rotation lane for NSE (India), separate from
 the OANDA hot path. Once a month it ranks a fixed universe of NSE large caps by
-12-month momentum, applies a market-regime filter, diffs the target portfolio
+6-month trailing momentum, applies a market-regime filter, diffs the target portfolio
 against user-maintained holdings, and delivers exact BUY/SELL orders to Telegram.
 **It never places orders.** The user executes manually in Zerodha Kite.
 
 Strategy was validated offline (2010–2026 daily data, see `kite/backtest/`):
-12-month lookback, top 5 equal-weight, regime filter → ~23% CAGR gross,
-max DD −18%, vs Nifty 50 buy-and-hold 9.7%. Expectation setting: with
+6-month lookback (default; 49.89% CAGR vs 47.66% for 12-month in backtests),
+top 8 equal-weight, regime filter. Earlier 12-month validation showed ~23% CAGR
+gross, max DD −18%, vs Nifty 50 buy-and-hold 9.7%. Expectation setting: with
 survivorship bias, costs, and taxes, realistic outcome is low-to-mid-teens
 CAGR with materially smaller drawdowns than buy-and-hold; edge in the most
 recent 8 years was thin (17.6% vs 17.3% benchmark) — the drawdown reduction
@@ -62,7 +63,7 @@ GCS helpers, slog JSON logging.
 
 ## Algorithm (normative)
 
-Parameters (config, defaults shown): `lookback_months: 12`, `top_k: 8`,
+Parameters (config, defaults shown): `lookback_months: 6`, `top_k: 8`,
 `regime_ema_days: 200`, `cost_note_pct: 0.12`.
 
 > `top_k: 8` (not 5): on the Nifty 200 universe the 200-run validation showed
@@ -77,7 +78,7 @@ Parameters (config, defaults shown): `lookback_months: 12`, `top_k: 8`,
 2. **Regime**: invested iff last close of `^NSEI` > EMA(200) of its daily closes.
    If not invested → target portfolio = 100% cash (SELL everything held).
 3. **Rank**: for each universe symbol with ≥ `lookback_months` of history,
-   momentum = `close_today / close_12m_ago − 1`. Sort descending. Target =
+   momentum = `close_today / close_{lookback_months}_ago − 1`. Sort descending. Target =
    top `top_k`, equal weight of `portfolio.total_capital_inr`.
 4. **Diff** against holdings from `portfolio.json`:
    - SELL: held symbol not in target (or regime = cash). Quantity: full holding.
@@ -157,7 +158,7 @@ or the file contains the full message content for manual retrieval.
 
 ```yaml
 nserotator:
-  lookback_months: 12
+  lookback_months: 6
   top_k: 5
   regime_ema_days: 200
   universe: [RELIANCE, TCS, INFY, ...]        # ~60 symbols, .NS implied

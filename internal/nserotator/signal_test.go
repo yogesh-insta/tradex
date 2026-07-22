@@ -39,19 +39,29 @@ func TestMonthEndsTakesLastClosePerMonth(t *testing.T) {
 	}
 }
 
-// Pinned to kite/backtest/momentum.py: monthly.pct_change(12) on the same fixture.
+// Pinned to kite/backtest/momentum.py: monthly.pct_change(lookback) on the same fixture.
 func TestMomentumReturnMatchesPythonBacktest(t *testing.T) {
 	me := []float64{50, 52, 51, 55, 58, 57, 60, 62, 61, 65, 64, 66, 70, 75}
-	got, ok := MomentumReturn(me, 12)
+	got, ok := MomentumReturn(me, 6)
 	if !ok {
 		t.Fatal("expected ok")
 	}
-	want := 0.4423076923076923 // 75/52 - 1
+	want := 0.2096774193548387 // 75/62 - 1
 	if math.Abs(got-want) > 1e-12 {
 		t.Errorf("momentum=%v want %v", got, want)
 	}
-	if _, ok := MomentumReturn(me[:12], 12); ok {
-		t.Error("12 points cannot support 12-month lookback — want ok=false")
+	if _, ok := MomentumReturn(me[:6], 6); ok {
+		t.Error("6 points cannot support 6-month lookback — want ok=false")
+	}
+
+	// 12-month lookback still supported when configured.
+	got12, ok := MomentumReturn(me, 12)
+	if !ok {
+		t.Fatal("expected ok for 12-month lookback")
+	}
+	want12 := 0.4423076923076923 // 75/52 - 1
+	if math.Abs(got12-want12) > 1e-12 {
+		t.Errorf("12m momentum=%v want %v", got12, want12)
 	}
 }
 
