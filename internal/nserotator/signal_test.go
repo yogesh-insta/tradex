@@ -150,3 +150,33 @@ func TestLargeJumps(t *testing.T) {
 		t.Error("10% down move flagged")
 	}
 }
+
+func TestBadJumpWindowCoversMomentumLookback(t *testing.T) {
+	const n = 130
+	closes := make([]float64, n)
+	for i := range closes {
+		closes[i] = 100
+	}
+	spikeAt := n - 110 // glitch ~110 trading days ago — inside 6m momentum, outside 90d screen
+	closes[spikeAt] = 300
+
+	dates := make([]time.Time, n)
+	for i := range dates {
+		dates[i] = day(2025, 1, 1).AddDate(0, 0, i)
+	}
+	s := seriesFrom(dates, closes)
+
+	if BadJumpUp(s, 90, 0.5) {
+		t.Fatal("spike 110d ago should escape the old 90-day window")
+	}
+	window := BadJumpWindowDays(6)
+	if !BadJumpUp(s, window, 0.5) {
+		t.Fatalf("spike 110d ago should be caught by %d-day lookback-aligned window", window)
+	}
+}
+
+func TestBadJumpWindowDays(t *testing.T) {
+	if got := BadJumpWindowDays(6); got != 142 {
+		t.Fatalf("BadJumpWindowDays(6) = %d want 142", got)
+	}
+}
