@@ -42,7 +42,7 @@ func BuildOrders(holdings []Holding, target []string, lastClose map[string]float
 			Symbol:      h.Symbol,
 			Qty:         h.Qty,
 			LastClose:   px,
-			ApproxValue: math.Round(float64(h.Qty) * px),
+			ApproxValue: orderApproxValue(h.Qty, px),
 		})
 	}
 	if topK <= 0 {
@@ -69,11 +69,15 @@ func BuildOrders(holdings []Holding, target []string, lastClose map[string]float
 			Symbol:      t,
 			Qty:         qty,
 			LastClose:   px,
-			ApproxValue: math.Round(float64(qty) * px),
+			ApproxValue: orderApproxValue(qty, px),
 		})
 	}
 	sort.Slice(res.Sells, func(i, j int) bool { return res.Sells[i].Symbol < res.Sells[j].Symbol })
 	sort.Slice(res.Buys, func(i, j int) bool { return res.Buys[i].Symbol < res.Buys[j].Symbol })
 	sort.Strings(res.Holds)
 	return res
+}
+
+func orderApproxValue(qty int64, price float64) float64 {
+	return math.Round(float64(qty) * price)
 }
