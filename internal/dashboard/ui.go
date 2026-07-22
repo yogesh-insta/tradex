@@ -182,6 +182,19 @@ function money(n) {
   return (n > 0 ? "+" : "") + s;
 }
 function cls(n) { return n > 0 ? "pos" : n < 0 ? "neg" : ""; }
+// etfmonitor stores trailing returns as {Value, OK} objects (Go Ret type).
+function etfRet(r) {
+  if (!r) return "—";
+  const ok = r.OK ?? r.ok;
+  const val = r.Value ?? r.value;
+  if (!ok || val == null) return "n/a";
+  const pct = Math.round(val * 100);
+  return (pct > 0 ? "+" : "") + pct + "%";
+}
+function etfPct(v) {
+  if (v == null || v === "") return "—";
+  return Math.round(Number(v) * 100) + "%";
+}
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 }
@@ -400,8 +413,8 @@ async function refresh() {
         const t = etf.top[i];
         html += '<tr><td>' + (i+1) + '</td><td><strong>' + esc(t.ticker) + '</strong></td><td>' + esc(t.name) +
           '</td><td class="num ' + cls(t.score) + '">' + (t.score || '—').toFixed(2) +
-          '</td><td class="num">' + (t.ret_3m || '—') + '%</td><td class="num">' + (t.ret_6m || '—') + '%</td>' +
-          '<td class="num">' + (t.ret_12m || '—') + '%</td><td class="num">' + (t.vol || '—') + '%</td></tr>';
+          '</td><td class="num">' + etfRet(t.ret_3m) + '</td><td class="num">' + etfRet(t.ret_6m) + '</td>' +
+          '<td class="num">' + etfRet(t.ret_12m) + '</td><td class="num">' + etfPct(t.vol) + '</td></tr>';
       }
       html += '</tbody></table></div></div>';
     }
@@ -411,7 +424,7 @@ async function refresh() {
       html += '<div class="scroll"><table><thead><tr><th>Ticker</th><th>Name</th><th class="num">Score</th><th class="num">Vol</th></tr></thead><tbody>';
       for (const t of etf.geared_fx) {
         html += '<tr><td><strong>' + esc(t.ticker) + '</strong></td><td>' + esc(t.name) +
-          '</td><td class="num">' + (t.score || '—').toFixed(2) + '</td><td class="num">' + (t.vol || '—') + '%</td></tr>';
+          '</td><td class="num">' + (t.score || '—').toFixed(2) + '</td><td class="num">' + etfPct(t.vol) + '</td></tr>';
       }
       html += '</tbody></table></div></div>';
     }
