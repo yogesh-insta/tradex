@@ -154,6 +154,14 @@ const uiHTML = `<!DOCTYPE html>
     <h2>4 · P&amp;L summary</h2>
     <div id="pl"></div>
   </section>
+  <section class="full" id="sec-etf">
+    <h2>5 · ASX ETF monitor</h2>
+    <div id="etf"></div>
+  </section>
+  <section class="full" id="sec-nse">
+    <h2>6 · NSE momentum rotator</h2>
+    <div id="nse"></div>
+  </section>
 </div>
 <script>
 const token = new URLSearchParams(location.search).get("token") || "";
@@ -174,6 +182,37 @@ function money(n) {
   return (n > 0 ? "+" : "") + s;
 }
 function cls(n) { return n > 0 ? "pos" : n < 0 ? "neg" : ""; }
+// etfmonitor stores trailing returns as {Value, OK} objects (Go Ret type).
+function etfRet(r) {
+  if (!r) return "—";
+  const ok = r.OK ?? r.ok;
+  const val = r.Value ?? r.value;
+  if (!ok || val == null) return "n/a";
+  const pct = Math.round(val * 100);
+  return (pct > 0 ? "+" : "") + pct + "%";
+}
+function etfPct(v) {
+  if (v == null || v === "") return "—";
+  return Math.round(Number(v) * 100) + "%";
+}
+// nserotator recommendation JSON uses top_ranked[], momentum (fraction), company_name.
+function nseMom(m) {
+  if (m == null || m === "") return "—";
+  const pct = Math.round(Number(m) * 100);
+  return (pct > 0 ? "+" : "") + pct + "%";
+}
+function nsePrice(v) {
+  if (v == null || v === "") return "—";
+  const n = Number(v);
+  return n >= 100 ? "₹" + n.toFixed(0) : "₹" + n.toFixed(2);
+}
+function nseMc(v) {
+  if (v == null || v <= 0) return "n/a";
+  const cr = v / 1e7;
+  if (cr >= 100000) return "₹" + (cr / 100000).toFixed(2) + "L Cr";
+  if (cr >= 1000) return "₹" + (cr / 1000).toFixed(1) + "K Cr";
+  return "₹" + Math.round(cr) + " Cr";
+}
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 }
@@ -196,11 +235,17 @@ function setDot(level) {
 async function refresh() {
   const cfg = await api("/api/ui-config");
   const accounts = cfg.accounts || [];
-  const [ov, cal, ...dailyByAccount] = await Promise.all([
+  const promises = [
     api("/api/overview"),
     api("/api/calendar"),
     ...accounts.map(account => api("/api/pl/daily?account=" + encodeURIComponent(account))),
-  ]);
+    api("/api/etf").catch(() => ({error: "not available"})),
+    api("/api/nse").catch(() => ({error: "not available"})),
+  ];
+  const [ov, cal, ...rest] = await Promise.all(promises);
+  const etf = rest[rest.length - 2];
+  const nse = rest[rest.length - 1];
+  const dailyByAccount = rest.slice(0, -2);
   document.getElementById("meta").textContent =
     "tz=" + cfg.reporting_tz +
     " · refresh=" + (cfg.refresh_interval_ms/1000) + "s" +
@@ -361,6 +406,111 @@ async function refresh() {
     }
   }
   document.getElementById("pl").innerHTML = p;
+
+  // ETF Monitor
+  let etfHtml = '';
+  if (etf && etf.error) {
+    etfHtml = '<div class="empty">' + esc(etf.error) + '</div>';
+  } else if (etf) {
+    let html = '<div class="etf-container">';
+    if (etf.exit_alerts && etf.exit_alerts.length) {
+      html += '<div class="etf-section">';
+      html += '<h3>Exit Alerts</h3>';
+      html += '<div class="scroll"><table><thead><tr><th>Ticker</th><th>Name</th><th class="num">Qty</th><th>Reason</th></tr></thead><tbody>';
+      for (const a of etf.exit_alerts) {
+        html += '<tr class="alert"><td><strong>' + esc(a.ticker) + '</strong></td><td>' + esc(a.name) +
+          '</td><td class="num">' + (a.qty || '—') + '</td><td>' + esc(a.reason) + '</td></tr>';
+      }
+      html += '</tbody></table></div></div>';
+    }
+    if (etf.top && etf.top.length) {
+      html += '<div class="etf-section">';
+      html += '<h3>Top 10 Standard Momentum</h3>';
+      html += '<div class="scroll"><table><thead><tr><th>Rank</th><th>Ticker</th><th>Name</th><th class="num">Score</th><th class="num">3m</th><th class="num">6m</th><th class="num">12m</th><th class="num">Vol</th></tr></thead><tbody>';
+      for (let i = 0; i < etf.top.length; i++) {
+        const t = etf.top[i];
+        html += '<tr><td>' + (i+1) + '</td><td><strong>' + esc(t.ticker) + '</strong></td><td>' + esc(t.name) +
+          '</td><td class="num ' + cls(t.score) + '">' + (t.score || '—').toFixed(2) +
+          '</td><td class="num">' + etfRet(t.ret_3m) + '</td><td class="num">' + etfRet(t.ret_6m) + '</td>' +
+          '<td class="num">' + etfRet(t.ret_12m) + '</td><td class="num">' + etfPct(t.vol) + '</td></tr>';
+      }
+      html += '</tbody></table></div></div>';
+    }
+    if (etf.geared_fx && etf.geared_fx.length) {
+      html += '<div class="etf-section">';
+      html += '<h3>Geared &amp; FX</h3>';
+      html += '<div class="scroll"><table><thead><tr><th>Ticker</th><th>Name</th><th class="num">Score</th><th class="num">Vol</th></tr></thead><tbody>';
+      for (const t of etf.geared_fx) {
+        html += '<tr><td><strong>' + esc(t.ticker) + '</strong></td><td>' + esc(t.name) +
+          '</td><td class="num">' + (t.score || '—').toFixed(2) + '</td><td class="num">' + etfPct(t.vol) + '</td></tr>';
+      }
+      html += '</tbody></table></div></div>';
+    }
+    if (etf.warnings && etf.warnings.length) {
+      html += '<div class="etf-section warnings">';
+      for (const w of etf.warnings) {
+        html += '<div class="empty">⚠ ' + esc(w) + '</div>';
+      }
+      html += '</div>';
+    }
+    html += '<div class="meta">as of ' + esc(etf.run_at || etf.month || '—') + ' · <a href="https://www.betashares.com.au/fund/" target="_blank" style="color:var(--accent)">Betashares</a></div>';
+    html += '</div>';
+    etfHtml = html;
+  }
+  document.getElementById("etf").innerHTML = etfHtml || '<div class="empty">Loading…</div>';
+
+  // NSE Rotator
+  let nseHtml = '';
+  if (nse && nse.error) {
+    nseHtml = '<div class="empty">' + esc(nse.error) + '</div>';
+  } else if (nse) {
+    let html = '<div class="nse-container">';
+    const regime = nse.regime_invested ? "INVESTED" : "CASH — exit all positions";
+    html += '<div class="meta">Regime: <strong>' + esc(regime) + '</strong>';
+    if (nse.nifty_close != null && nse.nifty_ema200 != null) {
+      html += ' · Nifty ' + Number(nse.nifty_close).toFixed(0) + ' vs EMA200 ' + Number(nse.nifty_ema200).toFixed(0);
+    }
+    html += '</div>';
+    const ranked = nse.top_ranked || [];
+    if (ranked.length) {
+      html += '<div class="nse-section">';
+      html += '<h3>Top ' + ranked.length + ' NSE stocks (6m momentum)</h3>';
+      html += '<div class="scroll"><table><thead><tr><th>Rank</th><th>Symbol</th><th>Name</th><th class="num">6m</th><th class="num">Price</th><th class="num">MCap</th></tr></thead><tbody>';
+      for (let i = 0; i < ranked.length; i++) {
+        const t = ranked[i];
+        html += '<tr><td>' + (i+1) + '</td><td><strong>' + esc(t.symbol) + '</strong></td><td>' + esc(t.company_name || '') +
+          '</td><td class="num ' + cls(t.momentum) + '">' + nseMom(t.momentum) +
+          '</td><td class="num">' + nsePrice(t.last_close) + '</td><td class="num">' + nseMc(t.market_cap_inr) + '</td></tr>';
+      }
+      html += '</tbody></table></div></div>';
+    }
+    if (nse.orders && nse.orders.length) {
+      html += '<div class="nse-section">';
+      html += '<h3>Orders</h3>';
+      html += '<div class="scroll"><table><thead><tr><th>Side</th><th>Symbol</th><th>Name</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>';
+      for (const o of nse.orders) {
+        html += '<tr class="' + (o.side === "SELL" ? "alert" : "") + '"><td>' + esc(o.side) +
+          '</td><td><strong>' + esc(o.symbol) + '</strong></td><td>' + esc(o.company_name || '') +
+          '</td><td class="num">' + (o.qty ?? "—") + '</td><td class="num">' + nsePrice(o.last_close) +
+          '</td><td class="num">' + nsePrice(o.approx_value_inr) + '</td></tr>';
+      }
+      html += '</tbody></table></div></div>';
+    }
+    if (nse.holds && nse.holds.length) {
+      html += '<div class="meta">Hold: ' + esc(nse.holds.join(", ")) + '</div>';
+    }
+    if (nse.warnings && nse.warnings.length) {
+      html += '<div class="nse-section warnings">';
+      for (const w of nse.warnings) {
+        html += '<div class="empty">⚠ ' + esc(w) + '</div>';
+      }
+      html += '</div>';
+    }
+    html += '<div class="meta">as of ' + esc(nse.run_at || nse.month || '—') + '</div>';
+    html += '</div>';
+    nseHtml = html;
+  }
+  document.getElementById("nse").innerHTML = nseHtml || '<div class="empty">Loading…</div>';
   return cfg.refresh_interval_ms || 20000;
 }
 async function loop() {

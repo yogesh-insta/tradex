@@ -32,6 +32,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/calendar", s.protect(s.handleCalendar))
 	mux.HandleFunc("GET /api/pl", s.protect(s.handlePL))
 	mux.HandleFunc("GET /api/pl/daily", s.protect(s.handlePLDaily))
+	mux.HandleFunc("GET /api/etf", s.protect(s.handleETF))
+	mux.HandleFunc("GET /api/nse", s.protect(s.handleNSE))
 	mux.HandleFunc("GET /api/ui-config", s.protect(s.handleUIConfig))
 	mux.HandleFunc("GET /", s.protect(s.handleUI))
 	return mux
@@ -119,6 +121,24 @@ func (s *Server) handlePLDaily(w http.ResponseWriter, r *http.Request) {
 		to = t
 	}
 	writeJSON(w, http.StatusOK, s.svc.DailyPLSeries(r.Context(), account, from, to))
+}
+
+func (s *Server) handleETF(w http.ResponseWriter, r *http.Request) {
+	report, err := s.svc.LatestETFReport(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (s *Server) handleNSE(w http.ResponseWriter, r *http.Request) {
+	report, err := s.svc.LatestNSEReport(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
 }
 
 func (s *Server) handleUIConfig(w http.ResponseWriter, _ *http.Request) {
