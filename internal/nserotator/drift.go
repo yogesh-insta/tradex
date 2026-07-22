@@ -76,7 +76,70 @@ func FetchConstituents(ctx context.Context, httpClient *http.Client, url string)
 	return out, nil
 }
 
-// DiffUniverse compares the checked-in universe with the official list.
+// FetchCompanyNames downloads the official Nifty 200 CSV and returns symbol → name.
+func FetchCompanyNames(ctx context.Context, httpClient *http.Client, url string) (map[string]string, error) {
+	if url == "" {
+		url = NSEConstituentsURL
+	}
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(rctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) tradex-nserotator/1.0")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("nse constituents: HTTP %d", resp.StatusCode)
+	}
+	r := csv.NewReader(io.LimitReader(resp.Body, 4<<20))
+	r.FieldsPerRecord = -1
+	header, err := r.Read()
+	if err != nil {
+		return nil, err
+	}
+	nameCol, symCol := -1, -1
+	for i, h := range header {
+		switch strings.ToLower(strings.TrimSpace(h)) {
+		case "company name":
+			nameCol = i
+		case "symbol":
+			symCol = i
+		}
+	}
+	if symCol < 0 || nameCol < 0 {
+		return nil, fmt.Errorf("nse constituents: missing Company Name or Symbol column")
+	}
+	out := make(map[string]string)
+	for {
+		rec, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if symCol < len(rec) && nameCol < len(rec) {
+			sym := strings.TrimSpace(rec[symCol])
+			name := strings.TrimSpace(rec[nameCol])
+			if sym != "" && name != "" {
+				out[sym] = name
+			}
+		}
+	}
+	if len(out) < 150 {
+		return nil, fmt.Errorf("nse constituents: only %d rows — response looks wrong", len(out))
+	}
+	return out, nil
+}
+
 func DiffUniverse(checkedIn, official []string) (added, removed []string) {
 	in := map[string]bool{}
 	for _, s := range checkedIn {

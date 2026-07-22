@@ -50,7 +50,7 @@ const (
 	portfolioStale         = 45 * 24 * time.Hour
 	maxFetchFailFrac       = 0.2
 	fetchWorkers           = 8
-	topRankedDisplayCount  = 15
+	topRankedDisplayCount  = 20
 )
 
 // RunResult summarizes a completed run.
@@ -194,9 +194,21 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 	topDisplay := head(ranked, topRankedDisplayCount)
 	quoteSymbols := symbolsForQuotes(topDisplay, diff)
 	quotes := d.Yahoo.FetchQuoteDetails(ctx, quoteSymbols)
+	companyNames, _ := FetchCompanyNames(ctx, nil, "")
+	resolveName := func(sym string) string {
+		if s, ok := series[sym]; ok && strings.TrimSpace(s.CompanyName) != "" {
+			return s.CompanyName
+		}
+		if companyNames != nil {
+			if name := companyNames[sym]; name != "" {
+				return name
+			}
+		}
+		return quotes[sym].CompanyName
+	}
 	enrichRanked := func(r *Ranked) {
 		q := quotes[r.Symbol]
-		r.CompanyName = q.CompanyName
+		r.CompanyName = resolveName(r.Symbol)
 		r.MarketCap = q.MarketCap
 		if q.Price > 0 {
 			r.LastClose = q.Price
@@ -215,7 +227,7 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 	}
 	enrichOrder := func(o *Order) {
 		q := quotes[o.Symbol]
-		o.CompanyName = q.CompanyName
+		o.CompanyName = resolveName(o.Symbol)
 		o.MarketCap = q.MarketCap
 		if q.Price > 0 {
 			o.LastClose = q.Price

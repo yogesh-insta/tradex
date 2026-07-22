@@ -21,8 +21,9 @@ type Candle struct {
 
 // Series is a symbol's daily close history, ascending by date.
 type Series struct {
-	Symbol  string
-	Candles []Candle
+	Symbol      string
+	CompanyName string
+	Candles     []Candle
 }
 
 // YahooClient fetches daily history from the Yahoo Finance v8 chart API.
@@ -49,6 +50,13 @@ func (c *YahooClient) http() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
+	return http.DefaultClient
+}
+
+func (c *YahooClient) sessionHTTP() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.session == nil {
@@ -61,6 +69,10 @@ func (c *YahooClient) http() *http.Client {
 type chartResponse struct {
 	Chart struct {
 		Result []struct {
+			Meta struct {
+				LongName  string `json:"longName"`
+				ShortName string `json:"shortName"`
+			} `json:"meta"`
 			Timestamp  []int64 `json:"timestamp"`
 			Indicators struct {
 				Quote []struct {
@@ -157,7 +169,10 @@ func (c *YahooClient) fetchOnce(ctx context.Context, u, symbol string) (Series, 
 	if len(closes) != len(r.Timestamp) {
 		return Series{}, fmt.Errorf("close/timestamp length mismatch")
 	}
-	s := Series{Symbol: symbol}
+	s := Series{Symbol: symbol, CompanyName: r.Meta.LongName}
+	if s.CompanyName == "" {
+		s.CompanyName = r.Meta.ShortName
+	}
 	for i, ts := range r.Timestamp {
 		if closes[i] == nil || *closes[i] <= 0 {
 			continue // Yahoo emits nulls for suspended days
@@ -269,7 +284,7 @@ func (c *YahooClient) fetchSparkBatch(ctx context.Context, symbols []string) (ma
 		yahooSyms[i] = c.toYahooSymbol(sym)
 	}
 	u := fmt.Sprintf("%s/v7/finance/spark?symbols=%s&range=1d&interval=1d",
-		c.base(), url.QueryEscape(strings.Join(yahooSyms, ",")))
+		c.base(), strings.Join(yahooSyms, ","))
 
 	attempts := c.Retries
 	if attempts <= 0 {
@@ -337,6 +352,7 @@ func (c *YahooClient) attachMarketCaps(ctx context.Context, out map[string]Quote
 	}
 	sem := make(chan struct{}, 4)
 	var wg sync.WaitGroup
+	var mu sync.Mutex
 	for _, sym := range symbols {
 		wg.Add(1)
 		sem <- struct{}{}
@@ -347,9 +363,11 @@ func (c *YahooClient) attachMarketCaps(ctx context.Context, out map[string]Quote
 			if err != nil || cap <= 0 {
 				return
 			}
+			mu.Lock()
 			q := out[sym]
 			q.MarketCap = cap
 			out[sym] = q
+			mu.Unlock()
 		}(sym)
 	}
 	wg.Wait()
@@ -369,12 +387,12 @@ func (c *YahooClient) ensureCrumb(ctx context.Context) error {
 			"https://finance.yahoo.com/",
 		}
 		for _, u := range bootstrap {
-			if _, err := c.get(ctx, u); err != nil {
+			if _, err := c.getSession(ctx, u); err != nil {
 				return err
 			}
 		}
 	}
-	body, err := c.get(ctx, c.base()+"/v1/test/getcrumb")
+	body, err := c.getSession(ctx, c.base()+"/v1/test/getcrumb")
 	if err != nil {
 		return err
 	}
@@ -412,7 +430,7 @@ func (c *YahooClient) fetchMarketCap(ctx context.Context, symbol string) (float6
 			case <-time.After(time.Duration(1<<i) * time.Second):
 			}
 		}
-		body, err := c.get(ctx, u)
+		body, err := c.getSession(ctx, u)
 		if err != nil {
 			lastErr = err
 			continue
@@ -441,6 +459,14 @@ func (c *YahooClient) fetchMarketCap(ctx context.Context, symbol string) (float6
 }
 
 func (c *YahooClient) get(ctx context.Context, u string) ([]byte, error) {
+	return c.doGet(ctx, c.http(), u, false)
+}
+
+func (c *YahooClient) getSession(ctx context.Context, u string) ([]byte, error) {
+	return c.doGet(ctx, c.sessionHTTP(), u, strings.Contains(u, "quoteSummary"))
+}
+
+func (c *YahooClient) doGet(ctx context.Context, client *http.Client, u string, withReferer bool) ([]byte, error) {
 	timeout := c.Timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
@@ -453,7 +479,11 @@ func (c *YahooClient) get(ctx context.Context, u string) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) tradex-nserotator/1.0")
-	resp, err := c.http().Do(req)
+	if withReferer {
+		req.Header.Set("Referer", "https://finance.yahoo.com/")
+		req.Header.Set("Accept", "application/json")
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
