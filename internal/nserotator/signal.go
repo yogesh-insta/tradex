@@ -117,6 +117,16 @@ func largeJump(s Series, windowDays int, maxMove float64, upward bool) bool {
 	return false
 }
 
+// BadJumpWindowDays is how many daily candles the bad-jump screen should cover
+// for a momentum lookback of lookbackMonths. ~22 trading days/month plus buffer
+// so the screen reaches at least as far back as the momentum base month-end.
+func BadJumpWindowDays(lookbackMonths int) int {
+	if lookbackMonths <= 0 {
+		return 90
+	}
+	return lookbackMonths*22 + 10
+}
+
 // Ranked is one symbol's momentum score.
 type Ranked struct {
 	Symbol      string  `json:"symbol"`
