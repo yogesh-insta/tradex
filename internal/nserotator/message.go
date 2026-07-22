@@ -27,12 +27,14 @@ func FormatMessage(rec Recommendation, topK, lookbackMonths int) string {
 		b.WriteString("ORDERS (execute at next open):\n")
 		for _, o := range rec.Orders {
 			if o.Side == "SELL" {
-				fmt.Fprintf(&b, "  SELL %-12s qty %-6d (~₹%s)\n", o.Symbol, o.Qty, inr(o.ApproxValue))
+				fmt.Fprintf(&b, "  SELL %-12s qty %-6d (~₹%s) · %s\n",
+					o.Symbol, o.Qty, inr(o.ApproxValue), formatMarketCapINR(o.MarketCap))
 			}
 		}
 		for _, o := range rec.Orders {
 			if o.Side == "BUY" {
-				fmt.Fprintf(&b, "  BUY  %-12s qty %-6d @ ~%.2f (~₹%s)\n", o.Symbol, o.Qty, o.LastClose, inr(o.ApproxValue))
+				fmt.Fprintf(&b, "  BUY  %-12s qty %-6d @ ~%.2f (~₹%s) · %s\n",
+					o.Symbol, o.Qty, o.LastClose, inr(o.ApproxValue), formatMarketCapINR(o.MarketCap))
 			}
 		}
 	}
@@ -42,13 +44,10 @@ func FormatMessage(rec Recommendation, topK, lookbackMonths int) string {
 	}
 
 	if len(rec.TopRanked) > 0 {
-		fmt.Fprintf(&b, "\nTop momentum (%dm): ", lookbackMonths)
-		parts := make([]string, 0, len(rec.TopRanked))
+		fmt.Fprintf(&b, "\nTop momentum (%dm):\n", lookbackMonths)
 		for _, r := range rec.TopRanked {
-			parts = append(parts, fmt.Sprintf("%s %+.0f%%", r.Symbol, r.Momentum*100))
+			fmt.Fprintf(&b, "  %s %+.0f%% · %s\n", r.Symbol, r.Momentum*100, formatMarketCapINR(r.MarketCap))
 		}
-		b.WriteString(strings.Join(parts, " | "))
-		b.WriteString("\n")
 	}
 
 	if len(rec.Excluded) > 0 {
@@ -56,6 +55,22 @@ func FormatMessage(rec Recommendation, topK, lookbackMonths int) string {
 	}
 	b.WriteString("\nAdvisory only — you place all orders. Update portfolio.json after executing.")
 	return b.String()
+}
+
+// formatMarketCapINR renders Yahoo market cap (INR) in Indian crore units.
+func formatMarketCapINR(v float64) string {
+	if v <= 0 {
+		return "MCap n/a"
+	}
+	cr := v / 1e7 // 1 crore = 10 million INR
+	switch {
+	case cr >= 100000:
+		return fmt.Sprintf("₹%.2fL Cr", cr/100000)
+	case cr >= 1000:
+		return fmt.Sprintf("₹%.1fK Cr", cr/1000)
+	default:
+		return fmt.Sprintf("₹%.0f Cr", cr)
+	}
 }
 
 // inr formats a rupee amount with Indian digit grouping (12,34,567).
