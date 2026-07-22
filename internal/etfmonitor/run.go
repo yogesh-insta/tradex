@@ -264,7 +264,7 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, month stri
 			inverse = append(inverse, sc)
 		}
 	}
-	rep.Geared = RankByScore(gearedFX)
+	rep.GearedFX = RankByScore(gearedFX)
 	rep.Inverse = RankByScore(inverse)
 
 	// 6. Exit alerts for held funds — the disciplined sell rule.
@@ -292,6 +292,7 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, month stri
 			e := ExitAlert{
 				Ticker: h.Ticker, Name: name,
 				Reason: "below 200-day — momentum broken",
+				Qty:    h.Qty,
 				Vol:    m.Vol,
 			}
 			if len(m.Returns) > 0 {

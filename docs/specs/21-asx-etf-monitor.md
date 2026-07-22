@@ -1,6 +1,8 @@
 # Spec: ASX ETF Momentum Monitor (monthly, advisory-only)
 
-Status: DRAFT — pending review.
+Status: ACCEPTED — implemented, reviewed and merged via PR #8.
+The *mechanism* is reviewed and tested; the *parameters* are not validated
+(see §Open questions 1). Treat output as a shortlist, not a system.
 
 ## Purpose
 
@@ -146,6 +148,27 @@ Config defaults: `momentum_lookbacks_td: [63, 126, 252]`,
    still require the SAME minimum history, so groups stay consistent. **Inverse** funds are tracked and
    listed but never ranked.
 
+## On the Yahoo client being thinner than nserotator's
+
+`internal/nserotator/yahoo.go` carries cookie-jar and crumb-bootstrap machinery
+that this package omits. That is not lost resilience — it is machinery for an
+endpoint this lane never calls.
+
+nserotator's `FetchDaily` hits the same `/v8/finance/chart/` endpoint with the
+same plain client and a User-Agent header, no crumb involved. The crumb and
+session cookies exist solely for `/v10/finance/quoteSummary`, which supplies
+**market cap** for the NSE rotator's Telegram message. This lane reports no
+market cap, so it makes no such call.
+
+If Yahoo tightened access to the chart API, both lanes would break identically.
+Do NOT copy the crumb code here "for resilience" — it would add a cookie jar, a
+bootstrap round-trip and a shared-mutex cache that no request path uses.
+
+Extracting a shared client is deliberately deferred: the two lanes use different
+endpoints, and spec 20 states nserotator is "deliberately self-contained".
+Coupling two advisory lanes to save a ~150-line HTTP wrapper is a poor trade
+until a third consumer appears.
+
 ## Watchlist (funds too new to rank)
 
 A fund needs a full `trend_sma_days` of history before it can rank — roughly
@@ -176,6 +199,14 @@ read from a broker:
   "notes": "free text"
 }
 ```
+
+`qty` appears in the exit alert (`EXIT HACK (400 units) — …`) so the message
+says how much to sell, not merely what.
+
+`avg_price` is recorded for the user's own bookkeeping and is **deliberately
+unused by any logic**. The exit rule is trend-based; letting entry price
+influence a sell decision is precisely the anchoring bias the 200-day rule
+exists to remove.
 
 - Any held fund **below its 200-day** → `EXIT: <ticker> below 200-day —
   momentum broken`, at the **top** of the message.
