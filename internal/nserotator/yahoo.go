@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -33,6 +34,7 @@ type YahooClient struct {
 	BaseURL    string        // default https://query1.finance.yahoo.com
 	Timeout    time.Duration // per attempt
 	Retries    int           // total attempts = Retries (default 3)
+	Log        *slog.Logger
 
 	mu      sync.Mutex
 	session *http.Client
@@ -100,26 +102,16 @@ func (c *YahooClient) FetchDaily(ctx context.Context, symbol string, rangeYears 
 	u := fmt.Sprintf("%s/v8/finance/chart/%s?range=%dy&interval=1d&events=div%%2Csplit",
 		c.base(), url.PathEscape(ySym), rangeYears)
 
-	attempts := c.Retries
-	if attempts <= 0 {
-		attempts = 3
+	var s Series
+	err := retryDo(ctx, retryCount(c.Retries), func() error {
+		var err error
+		s, err = c.fetchOnce(ctx, u, symbol)
+		return err
+	})
+	if err != nil {
+		return Series{}, fmt.Errorf("yahoo %s: %w", symbol, err)
 	}
-	var lastErr error
-	for i := 0; i < attempts; i++ {
-		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return Series{}, ctx.Err()
-			case <-time.After(time.Duration(1<<i) * time.Second):
-			}
-		}
-		s, err := c.fetchOnce(ctx, u, symbol)
-		if err == nil {
-			return s, nil
-		}
-		lastErr = err
-	}
-	return Series{}, fmt.Errorf("yahoo %s: %w", symbol, lastErr)
+	return s, nil
 }
 
 func (c *YahooClient) fetchOnce(ctx context.Context, u, symbol string) (Series, error) {
@@ -248,6 +240,7 @@ func (c *YahooClient) FetchQuoteDetails(ctx context.Context, symbols []string) m
 		}
 		batch, err := c.fetchSparkBatch(ctx, unique[i:end])
 		if err != nil {
+			c.log().Warn("yahoo spark batch failed", "error", err, "symbols", len(unique[i:end]))
 			continue
 		}
 		for sym, q := range batch {
@@ -286,26 +279,16 @@ func (c *YahooClient) fetchSparkBatch(ctx context.Context, symbols []string) (ma
 	u := fmt.Sprintf("%s/v7/finance/spark?symbols=%s&range=1d&interval=1d",
 		c.base(), strings.Join(yahooSyms, ","))
 
-	attempts := c.Retries
-	if attempts <= 0 {
-		attempts = 3
+	var out map[string]QuoteDetail
+	err := retryDo(ctx, retryCount(c.Retries), func() error {
+		var err error
+		out, err = c.fetchSparkOnce(ctx, u, symbols, yahooSyms)
+		return err
+	})
+	if err != nil {
+		return nil, err
 	}
-	var lastErr error
-	for i := 0; i < attempts; i++ {
-		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(time.Duration(1<<i) * time.Second):
-			}
-		}
-		out, err := c.fetchSparkOnce(ctx, u, symbols, yahooSyms)
-		if err == nil {
-			return out, nil
-		}
-		lastErr = err
-	}
-	return nil, lastErr
+	return out, nil
 }
 
 func (c *YahooClient) fetchSparkOnce(ctx context.Context, u string, symbols, yahooSyms []string) (map[string]QuoteDetail, error) {
@@ -348,6 +331,7 @@ func (c *YahooClient) fetchSparkOnce(ctx context.Context, u string, symbols, yah
 
 func (c *YahooClient) attachMarketCaps(ctx context.Context, out map[string]QuoteDetail, symbols []string) {
 	if err := c.ensureCrumb(ctx); err != nil {
+		c.log().Warn("yahoo market cap bootstrap failed", "error", err)
 		return
 	}
 	sem := make(chan struct{}, 4)
@@ -359,18 +343,34 @@ func (c *YahooClient) attachMarketCaps(ctx context.Context, out map[string]Quote
 		go func(sym string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			cap, err := c.fetchMarketCap(ctx, sym)
-			if err != nil || cap <= 0 {
+			mcapINR, err := c.fetchMarketCap(ctx, sym)
+			if err != nil || mcapINR <= 0 {
+				if err != nil {
+					c.log().Debug("yahoo market cap fetch failed", "symbol", sym, "error", err)
+				}
 				return
 			}
 			mu.Lock()
 			q := out[sym]
-			q.MarketCap = cap
+			q.MarketCap = mcapINR
 			out[sym] = q
 			mu.Unlock()
 		}(sym)
 	}
 	wg.Wait()
+}
+
+func (c *YahooClient) log() *slog.Logger {
+	if c.Log != nil {
+		return c.Log
+	}
+	return slog.Default()
+}
+
+func (c *YahooClient) invalidateCrumb() {
+	c.mu.Lock()
+	c.crumb = ""
+	c.mu.Unlock()
 }
 
 func (c *YahooClient) ensureCrumb(ctx context.Context) error {
@@ -408,6 +408,31 @@ func (c *YahooClient) ensureCrumb(ctx context.Context) error {
 }
 
 func (c *YahooClient) fetchMarketCap(ctx context.Context, symbol string) (float64, error) {
+	var lastErr error
+	for refresh := 0; refresh < 2; refresh++ {
+		if err := c.ensureCrumb(ctx); err != nil {
+			return 0, err
+		}
+		var mcapINR float64
+		err := retryDo(ctx, retryCount(c.Retries), func() error {
+			var err error
+			mcapINR, err = c.fetchMarketCapOnce(ctx, symbol)
+			return err
+		})
+		if err == nil {
+			return mcapINR, nil
+		}
+		lastErr = err
+		if refresh == 0 && isAuthHTTP(err) {
+			c.invalidateCrumb()
+			continue
+		}
+		return 0, err
+	}
+	return 0, lastErr
+}
+
+func (c *YahooClient) fetchMarketCapOnce(ctx context.Context, symbol string) (float64, error) {
 	c.mu.Lock()
 	crumb := c.crumb
 	c.mu.Unlock()
@@ -418,45 +443,25 @@ func (c *YahooClient) fetchMarketCap(ctx context.Context, symbol string) (float6
 	u := fmt.Sprintf("%s/v10/finance/quoteSummary/%s?modules=summaryDetail&crumb=%s",
 		c.base(), url.PathEscape(ySym), url.QueryEscape(crumb))
 
-	attempts := c.Retries
-	if attempts <= 0 {
-		attempts = 3
+	body, err := c.getSession(ctx, u)
+	if err != nil {
+		return 0, err
 	}
-	var lastErr error
-	for i := 0; i < attempts; i++ {
-		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return 0, ctx.Err()
-			case <-time.After(time.Duration(1<<i) * time.Second):
-			}
-		}
-		body, err := c.getSession(ctx, u)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		var sr summaryResponse
-		if err := json.Unmarshal(body, &sr); err != nil {
-			lastErr = err
-			continue
-		}
-		if sr.QuoteSummary.Error != nil {
-			lastErr = fmt.Errorf("%s: %s", sr.QuoteSummary.Error.Code, sr.QuoteSummary.Error.Description)
-			continue
-		}
-		if len(sr.QuoteSummary.Result) == 0 {
-			lastErr = fmt.Errorf("empty quoteSummary")
-			continue
-		}
-		cap := sr.QuoteSummary.Result[0].SummaryDetail.MarketCap.Raw
-		if cap <= 0 {
-			lastErr = fmt.Errorf("missing market cap")
-			continue
-		}
-		return cap, nil
+	var sr summaryResponse
+	if err := json.Unmarshal(body, &sr); err != nil {
+		return 0, fmt.Errorf("parse: %w", err)
 	}
-	return 0, lastErr
+	if sr.QuoteSummary.Error != nil {
+		return 0, fmt.Errorf("%s: %s", sr.QuoteSummary.Error.Code, sr.QuoteSummary.Error.Description)
+	}
+	if len(sr.QuoteSummary.Result) == 0 {
+		return 0, fmt.Errorf("empty quoteSummary")
+	}
+	mcapINR := sr.QuoteSummary.Result[0].SummaryDetail.MarketCap.Raw
+	if mcapINR <= 0 {
+		return 0, fmt.Errorf("missing market cap")
+	}
+	return mcapINR, nil
 }
 
 func (c *YahooClient) get(ctx context.Context, u string) ([]byte, error) {
@@ -501,7 +506,7 @@ func (c *YahooClient) doGet(ctx context.Context, client *http.Client, u string, 
 		if allowNotFound && resp.StatusCode == http.StatusNotFound {
 			return body, nil
 		}
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, &httpStatusError{StatusCode: resp.StatusCode}
 	}
 	return body, nil
 }
