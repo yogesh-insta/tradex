@@ -1,0 +1,150 @@
+# ASX ETF universe for the monthly momentum monitor (spec 21).
+#
+# Source of truth: kite/betashares/screen.py FUNDS dict (the validated Python
+# screener). Every ticker there appears here, regrouped from Betashares' own
+# marketing categories into the five groups the monitor actually reasons about.
+# Yahoo symbol = <ticker>.AX.
+#
+# as-of: 2026-07-22 (betashares.com.au/fund/, 105 funds, + SEMI/Global X).
+# Refresh via config PR; the drift check warns when the live list diverges.
+#
+# Groups (normative, spec 21 §Universe):
+#   standard  ranked for the top 10. Equity, thematic, commodity, smart-beta,
+#             global, diversified, equity-income. The only group that can be
+#             recommended.
+#   geared    2-3x leveraged long. Ranked in a separate section — leverage tops
+#             a momentum table on its own and that is not a signal.
+#   inverse   bear/short funds. NEVER ranked among long momentum.
+#   fx        currency bets. Separate section with geared.
+#   excluded  cash and bonds. Not ranked at all; momentum is meaningless here.
+#
+# Non-Betashares issuers are tagged so the report can say "buyable via broker".
+#
+# drift_exempt: true suppresses the monthly "possibly delisted" warning for funds
+# that will never appear on the Betashares fund index — a different issuer
+# (SEMI/Global X) or an unlisted vehicle (BPCF). Everything else that goes
+# missing from that index is a real signal worth reading.
+#
+# REMOVED 2026-07-22: IPAY (Future of Payments) — delisted, last close
+# 2025-02-14. It still returns 3y of Yahoo history, so before the staleness
+# guard existed it ranked #7 on 17-month-old prices.
+
+universe:
+  standard:
+    - {ticker: A200, name: Australia 200}
+    - {ticker: AQLT, name: Australian Quality}
+    - {ticker: ARMR, name: Global Defence}
+    - {ticker: ASIA, name: Asia Technology Tigers}
+    - {ticker: ATEC, name: S&P/ASX Australian Technology}
+    - {ticker: AUST, name: Managed Risk Australian Shares}
+    - {ticker: BEMG, name: MSCI Emerging Markets}
+    - {ticker: BGBL, name: Global Shares}
+    - {ticker: BNKS, name: Global Banks Currency Hedged}
+    - {ticker: CFLO, name: Global Cash Flow Kings}
+    - {ticker: CLDD, name: Cloud Computing}
+    - {ticker: CRYP, name: Crypto Innovators}
+    - {ticker: DBBF, name: Ethical Diversified Balanced}
+    - {ticker: DGGF, name: Ethical Diversified Growth}
+    - {ticker: DHHF, name: Diversified All Growth}
+    - {ticker: DRIV, name: Electric Vehicles & Future Mobility}
+    - {ticker: DRUG, name: Global Healthcare Currency Hedged}
+    - {ticker: DZZF, name: Ethical Diversified High Growth}
+    - {ticker: ERTH, name: Climate Change Innovation}
+    - {ticker: ETHI, name: Global Sustainability Leaders}
+    - {ticker: EX20, name: Australian Ex-20 Portfolio Diversifier}
+    - {ticker: EXUS, name: Global Shares Ex US}
+    - {ticker: F100, name: FTSE 100}
+    - {ticker: FAIR, name: Australian Sustainability Leaders}
+    - {ticker: FOOD, name: Global Agriculture Currency Hedged}
+    - {ticker: FUEL, name: Global Energy Currency Hedged}
+    - {ticker: GAME, name: Video Games and Esports}
+    - {ticker: GTUM, name: Global Momentum}
+    - {ticker: H100, name: FTSE 100 Currency Hedged}
+    - {ticker: HACK, name: Global Cybersecurity}
+    - {ticker: HETH, name: Global Sustainability Leaders Currency Hedged}
+    - {ticker: HEUR, name: Europe Currency Hedged}
+    - {ticker: HGBL, name: Global Shares Currency Hedged}
+    - {ticker: HJPN, name: Japan Currency Hedged}
+    - {ticker: HNDQ, name: Nasdaq 100 Currency Hedged}
+    - {ticker: HQLT, name: Global Quality Leaders Currency Hedged}
+    - {ticker: HQUS, name: S&P 500 Equal Weight Currency Hedged}
+    - {ticker: HVST, name: Australian Dividend Harvester}
+    - {ticker: HYLD, name: S&P Australian Shares High Yield}
+    - {ticker: IIND, name: India Quality}
+    - {ticker: INCM, name: S&P Global High Dividend Aristocrats}
+    - {ticker: JNDQ, name: Nasdaq Next Gen 100}
+    - {ticker: MNRS, name: Global Gold Miners Currency Hedged}
+    - {ticker: MTUM, name: Australian Momentum}
+    - {ticker: NDQ, name: Nasdaq 100}
+    - {ticker: OOO, name: Crude Oil Index Currency Hedged}
+    - {ticker: QAU, name: Gold Bullion Currency Hedged}
+    - {ticker: QBTC, name: Bitcoin}
+    - {ticker: QETH, name: Ethereum}
+    - {ticker: QFN, name: Australian Financials Sector}
+    - {ticker: QLTY, name: Global Quality Leaders}
+    - {ticker: QMAX, name: Nasdaq 100 Yield Maximiser}
+    - {ticker: QNDQ, name: Nasdaq 100 Equal Weight}
+    - {ticker: QOZ, name: FTSE RAFI Australia 200}
+    - {ticker: QRE, name: Australian Resources Sector}
+    - {ticker: QUS, name: S&P 500 Equal Weight}
+    - {ticker: RBTZ, name: Global Robotics and Artificial Intelligence}
+    - {ticker: RCKT, name: Space Industry}
+    - {ticker: ROYL, name: Global Royalties}
+    - {ticker: SEMI, name: Semiconductors, issuer: Global X, drift_exempt: true}
+    - {ticker: SMLL, name: Australian Small Companies Select}
+    - {ticker: TOLL, name: FTSE Global Infrastructure Currency Hedged}
+    - {ticker: UMAX, name: S&P 500 Yield Maximiser}
+    - {ticker: URNM, name: Global Uranium}
+    - {ticker: WRLD, name: Managed Risk Global Shares}
+    - {ticker: XMET, name: Energy Transition Metals}
+    - {ticker: YMAX, name: Australian Top 20 Equities Yield Maximiser}
+
+  geared:
+    - {ticker: G200, name: Wealth Builder Australia 200 Geared}
+    - {ticker: GEAR, name: Geared Australian Equities}
+    - {ticker: GGAB, name: Geared Long Australian Government Bond}
+    - {ticker: GGBL, name: Wealth Builder Global Shares Geared}
+    - {ticker: GGFD, name: Geared Long US Treasury Bond Currency Hedged}
+    - {ticker: GGUS, name: Geared US Equities Currency Hedged}
+    - {ticker: GHHF, name: Wealth Builder Diversified All Growth Geared}
+    - {ticker: GNDQ, name: Wealth Builder Nasdaq 100 Geared}
+
+  inverse:
+    - {ticker: BBAB, name: Geared Short Australian Government Bond}
+    - {ticker: BBFD, name: Geared Short US Treasury Bond Currency Hedged}
+    - {ticker: BBOZ, name: Australian Equities Strong Bear}
+    - {ticker: BBUS, name: US Equities Strong Bear Currency Hedged}
+    - {ticker: BEAR, name: Australian Equities Bear}
+
+  fx:
+    - {ticker: AUDS, name: Strong Australian Dollar}
+    - {ticker: USD, name: U.S. Dollar}
+    - {ticker: YANK, name: Strong US Dollar}
+
+  # Cash and bonds. Carried so the drift check does not report them as "new"
+  # every month, but never fetched and never ranked.
+  excluded:
+    - {ticker: 28BB, name: 2028 Fixed Term Corporate Bond}
+    - {ticker: 29BB, name: 2029 Fixed Term Corporate Bond}
+    - {ticker: 30BB, name: 2030 Fixed Term Corporate Bond}
+    - {ticker: 31BB, name: 2031 Fixed Term Corporate Bond}
+    - {ticker: AAA, name: Australian High Interest Cash}
+    - {ticker: AEBD, name: Ethical Australian Composite Bond}
+    - {ticker: AGVT, name: Australian Government Bond}
+    - {ticker: BHYB, name: Australian Major Bank Hybrids Index}
+    - {ticker: BNDS, name: Western Asset Australian Bond}
+    - {ticker: BPCF, name: Cliffwater Private Credit (unlisted), drift_exempt: true}
+    - {ticker: BSUB, name: Australian Major Bank Subordinated Debt}
+    - {ticker: COMP, name: Bloomberg AusBond Composite}
+    - {ticker: CRED, name: Australian Investment Grade Corporate Bond}
+    - {ticker: ECRD, name: Australian Enhanced Credit Income}
+    - {ticker: GBND, name: Global Green Bond Currency Hedged}
+    - {ticker: GGOV, name: US Treasury Bond 20+ Year Currency Hedged}
+    - {ticker: HBRD, name: Australian Credit Income}
+    - {ticker: HCRD, name: Interest Rate Hedged Australian IG Corporate Bond}
+    - {ticker: MMKT, name: Australian Cash Plus}
+    - {ticker: OZBD, name: Australian Composite Bond}
+    - {ticker: QPON, name: Australian Bank Senior Floating Rate Bond}
+    - {ticker: US10, name: U.S. Treasury Bond 7-10 Year Currency Hedged}
+    - {ticker: UTIP, name: Inflation-Protected U.S. Treasury Bond Currency Hedged}
+    - {ticker: WBND, name: Global Aggregate Bond Currency Hedged}
