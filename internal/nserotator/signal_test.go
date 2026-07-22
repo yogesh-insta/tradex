@@ -129,14 +129,24 @@ func TestStale(t *testing.T) {
 	}
 }
 
-func TestBadJump(t *testing.T) {
+func TestLargeJumps(t *testing.T) {
 	dates := []time.Time{day(2026, 7, 1), day(2026, 7, 2), day(2026, 7, 3)}
 	ok := seriesFrom(dates, []float64{100, 110, 105})
-	corrupt := seriesFrom(dates, []float64{100, 220, 210})
-	if BadJump(ok, 90, 0.5) {
-		t.Error("10% move flagged")
+	upSpike := seriesFrom(dates, []float64{100, 220, 210})
+	downGap := seriesFrom(dates, []float64{774, 272, 270}) // demerger-style
+	if BadJumpUp(ok, 90, 0.5) {
+		t.Error("10% up move flagged")
 	}
-	if !BadJump(corrupt, 90, 0.5) {
-		t.Error("120% move not flagged")
+	if !BadJumpUp(upSpike, 90, 0.5) {
+		t.Error("120% up move not flagged")
+	}
+	if BadJumpUp(downGap, 90, 0.5) {
+		t.Error("down move must not trigger BadJumpUp")
+	}
+	if !LargeDownJump(downGap, 90, 0.5) {
+		t.Error("65% down move not flagged for warning")
+	}
+	if LargeDownJump(ok, 90, 0.5) {
+		t.Error("10% down move flagged")
 	}
 }
