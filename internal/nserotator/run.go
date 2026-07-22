@@ -161,9 +161,12 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 			excluded = append(excluded, sym+" (stale data)")
 			continue
 		}
-		if BadJump(s, badJumpWindowDays, badJumpMaxMove) {
-			excluded = append(excluded, sym+" (>50% daily move — bad data?)")
+		if BadJumpUp(s, badJumpWindowDays, badJumpMaxMove) {
+			excluded = append(excluded, sym+" (>50% daily up-move — bad data?)")
 			continue
+		}
+		if LargeDownJump(s, badJumpWindowDays, badJumpMaxMove) {
+			warnings = append(warnings, fmt.Sprintf("%s: >50%% daily down-move (likely corporate action) — still ranked", sym))
 		}
 		m, ok := MomentumReturn(MonthEnds(s), p.LookbackMonths)
 		if !ok {
