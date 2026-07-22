@@ -1,0 +1,18 @@
+# ASX ETF momentum monitor — local dev config (spec 21).
+# State on disk instead of GCS; drift check off to avoid hammering ASX/Betashares
+# during iteration.
+env: dev
+
+etfmonitor:
+  momentum_lookbacks_td: [63, 126, 252]
+  recency_weights: [0.5, 0.3, 0.2]
+  trend_sma_days: 200
+  top_n: 10
+  universe_file: config/universe-asx-etf.yaml
+  local_state_dir: data/etfmonitor-dev
+  yahoo_timeout_s: 30
+  drift_check: false
+
+telegram:
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}

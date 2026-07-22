@@ -1,0 +1,5 @@
+{
+  "as_of": "2026-07-22",
+  "holdings": [],
+  "notes": "Seed file. YOU maintain this — add {ticker, qty, avg_price} for each ASX ETF you hold. The monitor reads it only to raise EXIT alerts when a held fund drops below its 200-day trend. It is never read from a broker and never written by the job."
+}
