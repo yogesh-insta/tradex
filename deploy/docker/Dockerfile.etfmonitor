@@ -1,0 +1,25 @@
+# Cloud Run image for the ASX ETF momentum monitor (spec 21).
+# Cloud Scheduler (monthly, 1st) → HTTP /run → Yahoo → rank/gate → Telegram → GCS.
+# Advisory-only; no broker connectivity.
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/etfmonitor ./cmd/etfmonitor
+
+# tzdata kept for consistent timestamp rendering in logs/reports.
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY --from=build /usr/local/go/lib/time/zoneinfo.zip /zoneinfo.zip
+ENV ZONEINFO=/zoneinfo.zip
+COPY --from=build /out/etfmonitor /app/etfmonitor
+COPY config/config.etfmonitor.cloudrun.yaml /app/config/config.etfmonitor.cloudrun.yaml
+COPY config/universe-asx-etf.yaml /app/config/universe-asx-etf.yaml
+
+EXPOSE 8080
+ENV PORT=8080
+ENTRYPOINT ["/app/etfmonitor"]
+CMD ["--config", "config/config.etfmonitor.cloudrun.yaml"]
