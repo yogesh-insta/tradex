@@ -361,6 +361,44 @@ func (s *Service) DailyPLSeries(ctx context.Context, account string, from, to ti
 	return out
 }
 
+// LatestETFReport fetches the most recent ASX ETF monitor report from GCS.
+func (s *Service) LatestETFReport(ctx context.Context) (map[string]any, error) {
+	const prefix = "gs://tradex-demo-state/etfmonitor"
+	now := s.now().UTC()
+	data, err := s.deps.Objects.Fetch(ctx, prefix+"/report-"+now.Format("2006-01")+".json")
+	if err != nil {
+		prevMonth := now.AddDate(0, -1, 0)
+		data, err = s.deps.Objects.Fetch(ctx, prefix+"/report-"+prevMonth.Format("2006-01")+".json")
+		if err != nil {
+			return map[string]any{"error": "no ETF report found"}, nil
+		}
+	}
+	var report map[string]any
+	if err := json.Unmarshal(data, &report); err != nil {
+		return map[string]any{"error": "failed to parse report"}, nil
+	}
+	return report, nil
+}
+
+// LatestNSEReport fetches the most recent NSE momentum rotator recommendation from GCS.
+func (s *Service) LatestNSEReport(ctx context.Context) (map[string]any, error) {
+	const prefix = "gs://tradex-demo-state/nserotator"
+	now := s.now().UTC()
+	data, err := s.deps.Objects.Fetch(ctx, prefix+"/recommendation-"+now.Format("2006-01")+".json")
+	if err != nil {
+		prevMonth := now.AddDate(0, -1, 0)
+		data, err = s.deps.Objects.Fetch(ctx, prefix+"/recommendation-"+prevMonth.Format("2006-01")+".json")
+		if err != nil {
+			return map[string]any{"error": "no NSE recommendation found"}, nil
+		}
+	}
+	var report map[string]any
+	if err := json.Unmarshal(data, &report); err != nil {
+		return map[string]any{"error": "failed to parse recommendation"}, nil
+	}
+	return report, nil
+}
+
 // UIConfig exposes refresh interval etc. to the embedded page.
 func (s *Service) UIConfig() map[string]any {
 	accounts := make([]string, 0, len(s.cfg.Accounts))
