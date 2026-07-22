@@ -382,12 +382,13 @@ func (c *YahooClient) ensureCrumb(ctx context.Context) error {
 	c.mu.Unlock()
 
 	if c.base() == "https://query1.finance.yahoo.com" {
+		// fc.yahoo.com often returns 404 but still plants session cookies.
 		bootstrap := []string{
 			"https://fc.yahoo.com/",
 			"https://finance.yahoo.com/",
 		}
 		for _, u := range bootstrap {
-			if _, err := c.getSession(ctx, u); err != nil {
+			if _, err := c.getSessionBootstrap(ctx, u); err != nil {
 				return err
 			}
 		}
@@ -459,14 +460,18 @@ func (c *YahooClient) fetchMarketCap(ctx context.Context, symbol string) (float6
 }
 
 func (c *YahooClient) get(ctx context.Context, u string) ([]byte, error) {
-	return c.doGet(ctx, c.http(), u, false)
+	return c.doGet(ctx, c.http(), u, false, false)
 }
 
 func (c *YahooClient) getSession(ctx context.Context, u string) ([]byte, error) {
-	return c.doGet(ctx, c.sessionHTTP(), u, strings.Contains(u, "quoteSummary"))
+	return c.doGet(ctx, c.sessionHTTP(), u, strings.Contains(u, "quoteSummary"), false)
 }
 
-func (c *YahooClient) doGet(ctx context.Context, client *http.Client, u string, withReferer bool) ([]byte, error) {
+func (c *YahooClient) getSessionBootstrap(ctx context.Context, u string) ([]byte, error) {
+	return c.doGet(ctx, c.sessionHTTP(), u, false, true)
+}
+
+func (c *YahooClient) doGet(ctx context.Context, client *http.Client, u string, withReferer, allowNotFound bool) ([]byte, error) {
 	timeout := c.Timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
@@ -493,6 +498,9 @@ func (c *YahooClient) doGet(ctx context.Context, client *http.Client, u string, 
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
+		if allowNotFound && resp.StatusCode == http.StatusNotFound {
+			return body, nil
+		}
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return body, nil
