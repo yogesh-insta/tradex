@@ -1,0 +1,17 @@
+# ASX ETF momentum monitor — Cloud Run config (spec 21).
+# Advisory-only: no broker, no orders. Secrets only as ${ENV} references.
+env: prod
+
+etfmonitor:
+  momentum_lookbacks_td: [63, 126, 252]   # 3m / 6m / 12m in trading days
+  recency_weights: [0.5, 0.3, 0.2]        # tilt toward recent momentum
+  trend_sma_days: 200                     # hard gate: must be above this
+  top_n: 10
+  universe_file: config/universe-asx-etf.yaml
+  gcs_prefix: gs://tradex-demo-state/etfmonitor
+  yahoo_timeout_s: 30
+  drift_check: true
+
+telegram:
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}
