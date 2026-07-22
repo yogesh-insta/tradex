@@ -77,3 +77,32 @@ func TestFetchQuoteDetails(t *testing.T) {
 		t.Fatalf("BAJFINANCE name = %q", quotes["BAJFINANCE"].CompanyName)
 	}
 }
+
+func TestEnsureCrumbToleratesBootstrap404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bootstrap-404":
+			http.NotFound(w, r)
+		case "/v1/test/getcrumb":
+			_, _ = w.Write([]byte("testcrumb"))
+		case "/v10/finance/quoteSummary/TITAN.NS":
+			_, _ = w.Write([]byte(`{"quoteSummary":{"result":[{"summaryDetail":{"marketCap":{"raw":1e12}}}]}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	jar, _ := cookiejar.New(nil)
+	c := &YahooClient{BaseURL: srv.URL, Retries: 1, HTTPClient: &http.Client{Jar: jar}}
+	if _, err := c.getSessionBootstrap(context.Background(), srv.URL+"/bootstrap-404"); err != nil {
+		t.Fatalf("bootstrap 404: %v", err)
+	}
+	if err := c.ensureCrumb(context.Background()); err != nil {
+		t.Fatalf("ensureCrumb: %v", err)
+	}
+	cap, err := c.fetchMarketCap(context.Background(), "TITAN")
+	if err != nil || cap != 1e12 {
+		t.Fatalf("fetchMarketCap = %v err=%v", cap, err)
+	}
+}
