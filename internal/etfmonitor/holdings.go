@@ -129,6 +129,23 @@ func (st *StateStore) WriteHeartbeat(ctx context.Context, hb Heartbeat) error {
 	return st.write(ctx, "heartbeat.json", hb)
 }
 
+// ReadHeartbeat loads the last-success record. A missing file is NOT an error
+// (the first ever run has no heartbeat) — it returns the zero value.
+func (st *StateStore) ReadHeartbeat(ctx context.Context) (Heartbeat, error) {
+	raw, err := st.read(ctx, "heartbeat.json")
+	if err != nil {
+		if isNotExist(err) {
+			return Heartbeat{}, nil
+		}
+		return Heartbeat{}, fmt.Errorf("heartbeat: %w", err)
+	}
+	var hb Heartbeat
+	if err := json.Unmarshal(raw, &hb); err != nil {
+		return Heartbeat{}, fmt.Errorf("heartbeat parse: %w", err)
+	}
+	return hb, nil
+}
+
 func (st *StateStore) read(ctx context.Context, name string) ([]byte, error) {
 	if st.GCSPrefix != "" {
 		bucket, object, err := calendar.ParseGSURI(st.uri(name))

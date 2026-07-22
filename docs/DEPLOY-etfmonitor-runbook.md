@@ -82,12 +82,22 @@ URL=$(gcloud run services describe tradex-etfmonitor --region=us-east1 --format=
 curl -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" "$URL/run?force=1"
 ```
 
-A REAL Telegram message within ~2 minutes.
+A REAL Telegram message within ~2 minutes. `?force=1` matters here: a run whose
+month already has a successful heartbeat exits 0 without sending, so a test-fire
+without it would return `{"skipped":true}` and you would see nothing.
+
+Duplicate protection is the reason. Without it a Scheduler retry or a second
+manual call would deliver the same report twice and overwrite
+`report-YYYY-MM.json`. The heartbeat is written only after a successful send, so
+a retry after a genuine failure still runs.
 
 ## 5. First real run
 
 **1 August, 07:00 UTC** — automatic. Then monthly. Re-read the exit alerts
 first; the top 10 is a shortlist, not an instruction.
+
+Test-firing today does not consume August's run — the gate is keyed on calendar
+month, so a July heartbeat does not block an August delivery.
 
 ## Known limitations / honest notes
 

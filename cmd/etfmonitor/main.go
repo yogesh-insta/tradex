@@ -5,7 +5,11 @@
 // Modes (mirrors cmd/nserotator):
 //
 //	one-shot (default): go run ./cmd/etfmonitor -config config/config.etfmonitor.dev.yaml
-//	HTTP (Cloud Run):   PORT=8080 → POST/GET /run (add ?force=1 to bypass guards)
+//	HTTP (Cloud Run):   PORT=8080 → POST/GET /run (add ?force=1 to re-send)
+//
+// A run whose month already has a successful heartbeat exits 0 without
+// delivering, so Scheduler retries and stray manual calls cannot produce
+// duplicate reports. --force / ?force=1 overrides that to re-send.
 //
 // Cloud Scheduler fires monthly on the 1st. Required env for delivery:
 // TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (or values in the config file). GCS via ADC.
@@ -42,7 +46,7 @@ func run() error {
 	var configPath string
 	var force bool
 	flag.StringVar(&configPath, "config", "config/config.etfmonitor.cloudrun.yaml", "path to etfmonitor config YAML")
-	flag.BoolVar(&force, "force", false, "bypass freshness guards (manual/test runs)")
+	flag.BoolVar(&force, "force", false, "re-send even if this month was already delivered")
 	flag.Parse()
 
 	cfg, err := etfmonitor.LoadConfig(configPath)
@@ -68,7 +72,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	log.Info("etfmonitor complete", "month", res.Month, "top", res.TopN, "exits", res.Exits)
+	log.Info("etfmonitor complete", "month", res.Month, "top", res.TopN, "exits", res.Exits, "skipped", res.Skipped)
 	return nil
 }
 
@@ -142,13 +146,15 @@ func serveHTTP(ctx context.Context, listen string, cfg *etfmonitor.Config, log *
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Info("etfmonitor complete", "month", res.Month, "top", res.TopN, "exits", res.Exits)
+		log.Info("etfmonitor complete", "month", res.Month, "top", res.TopN,
+			"exits", res.Exits, "skipped", res.Skipped)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":    true,
-			"month": res.Month,
-			"top":   res.TopN,
-			"exits": res.Exits,
+			"ok":      true,
+			"month":   res.Month,
+			"top":     res.TopN,
+			"exits":   res.Exits,
+			"skipped": res.Skipped,
 		})
 	})
 

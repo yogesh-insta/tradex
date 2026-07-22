@@ -50,9 +50,10 @@ const (
 
 // RunResult summarizes a completed run.
 type RunResult struct {
-	Month string
-	TopN  int
-	Exits int
+	Skipped bool // this month's report was already delivered
+	Month   string
+	TopN    int
+	Exits   int
 }
 
 // Run executes one monthly advisory cycle per spec 21. On failure it
@@ -60,6 +61,25 @@ type RunResult struct {
 func Run(ctx context.Context, p RunParams, d Deps) (RunResult, error) {
 	now := d.Now()
 	month := now.UTC().Format("2006-01")
+
+	// Monthly idempotency gate. Unlike the NSE rotator there is no
+	// last-trading-day gate to make a second run a no-op, so without this a
+	// Cloud Scheduler retry or a second manual /run would deliver a duplicate
+	// report and overwrite report-YYYY-MM.json. The heartbeat is written only
+	// after a SUCCESSFUL delivery, so a retry following a failure still runs —
+	// which is exactly what a retry is for.
+	if !p.Force {
+		switch hb, err := d.Store.ReadHeartbeat(ctx); {
+		case err != nil:
+			// Cannot prove we already ran; prefer a possible duplicate over a
+			// silently missed month.
+			d.Log.Warn("heartbeat unreadable — proceeding without the idempotency gate", "error", err)
+		case hb.Month == month:
+			d.Log.Info("this month's report was already delivered — exiting",
+				"month", month, "last_success", hb.LastSuccess)
+			return RunResult{Skipped: true, Month: month}, nil
+		}
+	}
 
 	res, err := runCore(ctx, p, d, now, month)
 	if err != nil {
