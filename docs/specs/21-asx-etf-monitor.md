@@ -252,14 +252,30 @@ so it *will* break eventually.
 | Drift fetch failed | Logged AND reported in the Telegram message. Non-fatal. |
 | Telegram send fails | Retry ×3; report JSON is still written to GCS; exit 1. |
 | Run context expired | Failure alert is sent on a **detached** context so the alert survives the very deadline that caused the failure. |
+| This month already delivered | Exit 0 without sending (`skipped: true`). `--force` overrides. |
 | Ranking ties | Deterministic alphabetical tie-break. |
 
 ## Scheduling
 
 Monthly on the 1st, Cloud Scheduler `0 7 1 * *` UTC (~evening AEST). No
 last-trading-day gate is needed — unlike the NSE rotator this job issues no
-orders, so the exact session it runs on does not matter. `--force` / `?force=1`
-bypasses freshness guards for manual runs.
+orders, so the exact session it runs on does not matter.
+
+**Monthly idempotency gate.** Before doing any work the run reads
+`heartbeat.json`; if its `month` equals the current month, the run exits 0
+without delivering. Because the NSE rotator's date gate is absent here, nothing
+else would stop a Cloud Scheduler retry or a stray manual `/run` from sending a
+duplicate report and overwriting `report-YYYY-MM.json`.
+
+The heartbeat is written **only after a successful delivery**, so a retry
+following a failure still runs — which is what a retry is for. If the heartbeat
+cannot be read at all, the run proceeds: a possible duplicate is preferable to a
+silently missed month.
+
+`--force` / `?force=1` bypasses this gate to re-send. That is its only purpose;
+it does NOT relax the data-outage bar, the trend gate, or any bad-data guard —
+a manual run must not be able to produce a report the scheduled one would refuse
+to produce.
 
 ## Testing (normative)
 
@@ -300,6 +316,8 @@ Mandatory cases:
   precede the top list.
 - **Report formatting** — required fields present, no markdown metacharacters.
 - **Fetch-failure threshold** — run fails and the failure still reaches Telegram.
+- **Monthly idempotency** — a second run in the same month is skipped and sends
+  nothing; `--force` re-sends; a retry after a FAILED run is not skipped.
 
 `go build ./...`, `go vet ./...` and `go test ./...` must stay green.
 

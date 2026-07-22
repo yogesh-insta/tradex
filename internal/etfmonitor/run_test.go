@@ -563,3 +563,113 @@ func TestDriftReportsAddedRemovedAndCleanState(t *testing.T) {
 		t.Errorf("expected no drift, got added=%v removed=%v", added, removed)
 	}
 }
+
+// --- Monthly idempotency (--force) ------------------------------------------
+
+func tenFunds() ([]Fund, map[string][]float64) {
+	var funds []Fund
+	closes := map[string][]float64{}
+	for _, tk := range []string{"F1", "F2", "F3", "F4", "F5"} {
+		funds = append(funds, Fund{Ticker: tk, Group: GroupStandard})
+		closes[tk] = steadyRise()
+	}
+	return funds, closes
+}
+
+// TestSecondRunInSameMonthIsSkipped is the guard the --force flag exists to
+// bypass. Without it a Cloud Scheduler retry or a stray manual /run delivers a
+// duplicate report and overwrites report-YYYY-MM.json.
+func TestSecondRunInSameMonthIsSkipped(t *testing.T) {
+	funds, closes := tenFunds()
+	srv := chartServer(t, closes)
+	defer srv.Close()
+
+	sender := &capturedSender{}
+	d := testDeps(t, srv, sender)
+	dir := t.TempDir()
+	d.Store = &StateStore{LocalDir: dir}
+	p := RunParams{
+		Universe:    Universe{Standard: funds},
+		LookbacksTD: []int{63, 126, 252}, Weights: []float64{0.5, 0.3, 0.2},
+		TrendSMADays: 200, TopN: 10,
+	}
+
+	first, err := Run(context.Background(), p, d)
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if first.Skipped {
+		t.Fatal("the first run of a month must not be skipped")
+	}
+
+	second, err := Run(context.Background(), p, d)
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if !second.Skipped {
+		t.Error("a second run in the same month must be skipped")
+	}
+	if len(sender.texts) != 1 {
+		t.Errorf("expected exactly 1 delivery, got %d — duplicates reach the user", len(sender.texts))
+	}
+
+	// --force overrides, which is the documented purpose of the flag.
+	p.Force = true
+	third, err := Run(context.Background(), p, d)
+	if err != nil {
+		t.Fatalf("forced run: %v", err)
+	}
+	if third.Skipped {
+		t.Error("--force must bypass the monthly gate")
+	}
+	if len(sender.texts) != 2 {
+		t.Errorf("--force should re-send, got %d deliveries", len(sender.texts))
+	}
+}
+
+// TestRetryAfterFailureStillRuns is the safety property: the heartbeat is
+// written only after a SUCCESSFUL delivery, so a retry following a failure must
+// not be swallowed by the idempotency gate.
+func TestRetryAfterFailureStillRuns(t *testing.T) {
+	funds, closes := tenFunds()
+	srv := chartServer(t, closes)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	failing := &flakySender{failFirst: 3} // exhausts sendWithRetry's 3 attempts
+	d := testDeps(t, srv, nil)
+	d.Telegram = failing
+	d.Store = &StateStore{LocalDir: dir}
+	p := RunParams{
+		Universe:    Universe{Standard: funds},
+		LookbacksTD: []int{63, 126, 252}, Weights: []float64{0.5, 0.3, 0.2},
+		TrendSMADays: 200, TopN: 10,
+	}
+
+	if _, err := Run(context.Background(), p, d); err == nil {
+		t.Fatal("expected the run to fail when delivery fails")
+	}
+	// Delivery now works; the retry must proceed rather than being gated out.
+	res, err := Run(context.Background(), p, d)
+	if err != nil {
+		t.Fatalf("retry after failure: %v", err)
+	}
+	if res.Skipped {
+		t.Error("a retry after a FAILED run must not be skipped — nothing was delivered")
+	}
+}
+
+type flakySender struct {
+	failFirst int
+	calls     int
+	texts     []string
+}
+
+func (f *flakySender) SendMessage(_ context.Context, text string) error {
+	f.calls++
+	if f.calls <= f.failFirst {
+		return fmt.Errorf("telegram down")
+	}
+	f.texts = append(f.texts, text)
+	return nil
+}
