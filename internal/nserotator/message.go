@@ -27,14 +27,14 @@ func FormatMessage(rec Recommendation, topK, lookbackMonths int) string {
 		b.WriteString("ORDERS (execute at next open):\n")
 		for _, o := range rec.Orders {
 			if o.Side == "SELL" {
-				fmt.Fprintf(&b, "  SELL %-12s qty %-6d (~₹%s) · %s\n",
-					o.Symbol, o.Qty, inr(o.ApproxValue), formatMarketCapINR(o.MarketCap))
+				fmt.Fprintf(&b, "  SELL %s · qty %-6d @ %s (~₹%s) · %s\n",
+					formatOrderLabel(o), o.Qty, formatStockPriceINR(o.LastClose), inr(o.ApproxValue), formatMarketCapINR(o.MarketCap))
 			}
 		}
 		for _, o := range rec.Orders {
 			if o.Side == "BUY" {
-				fmt.Fprintf(&b, "  BUY  %-12s qty %-6d @ ~%.2f (~₹%s) · %s\n",
-					o.Symbol, o.Qty, o.LastClose, inr(o.ApproxValue), formatMarketCapINR(o.MarketCap))
+				fmt.Fprintf(&b, "  BUY  %s · qty %-6d @ %s (~₹%s) · %s\n",
+					formatOrderLabel(o), o.Qty, formatStockPriceINR(o.LastClose), inr(o.ApproxValue), formatMarketCapINR(o.MarketCap))
 			}
 		}
 	}
@@ -46,7 +46,8 @@ func FormatMessage(rec Recommendation, topK, lookbackMonths int) string {
 	if len(rec.TopRanked) > 0 {
 		fmt.Fprintf(&b, "\nTop momentum (%dm):\n", lookbackMonths)
 		for _, r := range rec.TopRanked {
-			fmt.Fprintf(&b, "  %s %+.0f%% · %s\n", r.Symbol, r.Momentum*100, formatMarketCapINR(r.MarketCap))
+			fmt.Fprintf(&b, "  %s · %s · %+.0f%% · %s\n",
+				formatRankedLabel(r), formatStockPriceINR(r.LastClose), r.Momentum*100, formatMarketCapINR(r.MarketCap))
 		}
 	}
 
@@ -71,6 +72,32 @@ func formatMarketCapINR(v float64) string {
 	default:
 		return fmt.Sprintf("₹%.0f Cr", cr)
 	}
+}
+
+func formatRankedLabel(r Ranked) string {
+	name := strings.TrimSpace(r.CompanyName)
+	if name == "" {
+		return r.Symbol
+	}
+	return r.Symbol + " — " + name
+}
+
+func formatOrderLabel(o Order) string {
+	name := strings.TrimSpace(o.CompanyName)
+	if name == "" {
+		return o.Symbol
+	}
+	return o.Symbol + " — " + name
+}
+
+func formatStockPriceINR(v float64) string {
+	if v <= 0 {
+		return "price n/a"
+	}
+	if v >= 100 {
+		return "₹" + inr(v)
+	}
+	return fmt.Sprintf("₹%.2f", v)
 }
 
 // inr formats a rupee amount with Indian digit grouping (12,34,567).

@@ -44,6 +44,7 @@ func (p Portfolio) AsOfTime() time.Time {
 type Order struct {
 	Side        string  `json:"side"` // BUY | SELL
 	Symbol      string  `json:"symbol"`
+	CompanyName string  `json:"company_name,omitempty"`
 	Qty         int64   `json:"qty"`
 	LastClose   float64 `json:"last_close"`
 	ApproxValue float64 `json:"approx_value_inr"`

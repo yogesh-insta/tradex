@@ -42,14 +42,15 @@ type RunParams struct {
 }
 
 const (
-	indexSymbol       = "^NSEI"
-	historyYears      = 5
-	staleAfter        = 10 * 24 * time.Hour // ~7 trading days
-	badJumpWindowDays = 90
-	badJumpMaxMove    = 0.5
-	portfolioStale    = 45 * 24 * time.Hour
-	maxFetchFailFrac  = 0.2
-	fetchWorkers      = 8
+	indexSymbol            = "^NSEI"
+	historyYears           = 5
+	staleAfter             = 10 * 24 * time.Hour // ~7 trading days
+	badJumpWindowDays      = 90
+	badJumpMaxMove         = 0.5
+	portfolioStale         = 45 * 24 * time.Hour
+	maxFetchFailFrac       = 0.2
+	fetchWorkers           = 8
+	topRankedDisplayCount  = 20
 )
 
 // RunResult summarizes a completed run.
@@ -160,9 +161,12 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 			excluded = append(excluded, sym+" (stale data)")
 			continue
 		}
-		if BadJump(s, badJumpWindowDays, badJumpMaxMove) {
-			excluded = append(excluded, sym+" (>50% daily move — bad data?)")
+		if BadJumpUp(s, badJumpWindowDays, badJumpMaxMove) {
+			excluded = append(excluded, sym+" (>50% daily up-move — bad data?)")
 			continue
+		}
+		if LargeDownJump(s, badJumpWindowDays, badJumpMaxMove) {
+			warnings = append(warnings, fmt.Sprintf("%s: >50%% daily down-move (likely corporate action) — still ranked", sym))
 		}
 		m, ok := MomentumReturn(MonthEnds(s), p.LookbackMonths)
 		if !ok {
@@ -189,20 +193,54 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 	}
 	diff := BuildOrders(pf.Holdings, target, lastClose, pf.TotalCapitalINR, p.TopK)
 
-	// Market cap for top-ranked list and order suggestions (best-effort).
-	mcapSymbols := symbolsForMarketCap(head(ranked, 10), diff)
-	mcaps := d.Yahoo.FetchMarketCaps(ctx, mcapSymbols)
+	// Company name, live price, and market cap for top-ranked list and orders (best-effort).
+	topDisplay := head(ranked, topRankedDisplayCount)
+	quoteSymbols := symbolsForQuotes(topDisplay, diff)
+	quotes := d.Yahoo.FetchQuoteDetails(ctx, quoteSymbols)
+	companyNames, _ := FetchCompanyNames(ctx, nil, "")
+	resolveName := func(sym string) string {
+		if s, ok := series[sym]; ok && strings.TrimSpace(s.CompanyName) != "" {
+			return s.CompanyName
+		}
+		if companyNames != nil {
+			if name := companyNames[sym]; name != "" {
+				return name
+			}
+		}
+		return quotes[sym].CompanyName
+	}
+	enrichRanked := func(r *Ranked) {
+		q := quotes[r.Symbol]
+		r.CompanyName = resolveName(r.Symbol)
+		r.MarketCap = q.MarketCap
+		if q.Price > 0 {
+			r.LastClose = q.Price
+		} else if p, ok := lastClose[r.Symbol]; ok {
+			r.LastClose = p
+		}
+	}
+	for i := range topDisplay {
+		enrichRanked(&topDisplay[i])
+	}
 	for i := range ranked {
-		if i >= 10 {
+		if i >= topRankedDisplayCount {
 			break
 		}
-		ranked[i].MarketCap = mcaps[ranked[i].Symbol]
+		ranked[i] = topDisplay[i]
+	}
+	enrichOrder := func(o *Order) {
+		q := quotes[o.Symbol]
+		o.CompanyName = resolveName(o.Symbol)
+		o.MarketCap = q.MarketCap
+		if q.Price > 0 {
+			o.LastClose = q.Price
+		}
 	}
 	for i := range diff.Sells {
-		diff.Sells[i].MarketCap = mcaps[diff.Sells[i].Symbol]
+		enrichOrder(&diff.Sells[i])
 	}
 	for i := range diff.Buys {
-		diff.Buys[i].MarketCap = mcaps[diff.Buys[i].Symbol]
+		enrichOrder(&diff.Buys[i])
 	}
 
 	for _, t := range target {
@@ -258,7 +296,7 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 		NiftyEMA:       niftyEMA,
 		Orders:         append(append([]Order{}, diff.Sells...), diff.Buys...),
 		Holds:          diff.Holds,
-		TopRanked:      head(ranked, 10),
+		TopRanked:      head(ranked, topRankedDisplayCount),
 		Excluded:       excluded,
 		Warnings:       warnings,
 	}
@@ -342,7 +380,7 @@ func joinOrNone(s []string) string {
 	return strings.Join(s, ", ")
 }
 
-func symbolsForMarketCap(top []Ranked, diff DiffResult) []string {
+func symbolsForQuotes(top []Ranked, diff DiffResult) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(sym string) {
