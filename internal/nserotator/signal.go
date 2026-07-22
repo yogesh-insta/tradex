@@ -104,8 +104,9 @@ func BadJump(s Series, windowDays int, maxMove float64) bool {
 
 // Ranked is one symbol's momentum score.
 type Ranked struct {
-	Symbol   string
-	Momentum float64
+	Symbol    string  `json:"symbol"`
+	Momentum  float64 `json:"momentum"`
+	MarketCap float64 `json:"market_cap_inr,omitempty"` // Yahoo summary; INR for .NS
 }
 
 // Rank sorts eligible symbols by momentum descending; deterministic

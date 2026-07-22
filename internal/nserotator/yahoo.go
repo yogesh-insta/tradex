@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -158,4 +159,136 @@ func (c *YahooClient) fetchOnce(ctx context.Context, u, symbol string) (Series, 
 		return Series{}, fmt.Errorf("no valid closes")
 	}
 	return s, nil
+}
+
+type quoteResponse struct {
+	QuoteResponse struct {
+		Result []struct {
+			Symbol    string   `json:"symbol"`
+			MarketCap *float64 `json:"marketCap"`
+		} `json:"result"`
+		Error *struct {
+			Code        string `json:"code"`
+			Description string `json:"description"`
+		} `json:"error"`
+	} `json:"quoteResponse"`
+}
+
+const quoteBatchSize = 50
+
+// FetchMarketCaps returns latest market cap (INR for NSE .NS symbols) from
+// Yahoo's v7 quote API. Missing or failed symbols are omitted from the map.
+func (c *YahooClient) FetchMarketCaps(ctx context.Context, symbols []string) map[string]float64 {
+	out := make(map[string]float64, len(symbols))
+	if len(symbols) == 0 {
+		return out
+	}
+	// Dedupe while preserving order.
+	seen := make(map[string]bool, len(symbols))
+	unique := make([]string, 0, len(symbols))
+	for _, sym := range symbols {
+		if sym == "" || seen[sym] {
+			continue
+		}
+		seen[sym] = true
+		unique = append(unique, sym)
+	}
+	for i := 0; i < len(unique); i += quoteBatchSize {
+		end := i + quoteBatchSize
+		if end > len(unique) {
+			end = len(unique)
+		}
+		batch := unique[i:end]
+		mcaps, err := c.fetchMarketCapBatch(ctx, batch)
+		if err != nil {
+			continue
+		}
+		for sym, cap := range mcaps {
+			out[sym] = cap
+		}
+	}
+	return out
+}
+
+func (c *YahooClient) fetchMarketCapBatch(ctx context.Context, symbols []string) (map[string]float64, error) {
+	yahooSyms := make([]string, len(symbols))
+	for i, sym := range symbols {
+		if len(sym) > 0 && sym[0] == '^' {
+			yahooSyms[i] = sym
+		} else {
+			yahooSyms[i] = sym + ".NS"
+		}
+	}
+	u := fmt.Sprintf("%s/v7/finance/quote?symbols=%s", c.base(), url.QueryEscape(strings.Join(yahooSyms, ",")))
+
+	attempts := c.Retries
+	if attempts <= 0 {
+		attempts = 3
+	}
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(1<<i) * time.Second):
+			}
+		}
+		mcaps, err := c.fetchMarketCapOnce(ctx, u, symbols, yahooSyms)
+		if err == nil {
+			return mcaps, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func (c *YahooClient) fetchMarketCapOnce(ctx context.Context, u string, symbols, yahooSyms []string) (map[string]float64, error) {
+	timeout := c.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	rctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(rctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) tradex-nserotator/1.0")
+	resp, err := c.http().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var qr quoteResponse
+	if err := json.Unmarshal(body, &qr); err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	if qr.QuoteResponse.Error != nil {
+		return nil, fmt.Errorf("%s: %s", qr.QuoteResponse.Error.Code, qr.QuoteResponse.Error.Description)
+	}
+	yahooToSym := make(map[string]string, len(symbols))
+	for i, sym := range symbols {
+		yahooToSym[strings.ToUpper(yahooSyms[i])] = sym
+	}
+	out := make(map[string]float64, len(qr.QuoteResponse.Result))
+	for _, r := range qr.QuoteResponse.Result {
+		sym, ok := yahooToSym[strings.ToUpper(r.Symbol)]
+		if !ok || r.MarketCap == nil || *r.MarketCap <= 0 {
+			continue
+		}
+		out[sym] = *r.MarketCap
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no market caps in response")
+	}
+	return out, nil
 }

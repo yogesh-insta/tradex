@@ -47,6 +47,7 @@ type Order struct {
 	Qty         int64   `json:"qty"`
 	LastClose   float64 `json:"last_close"`
 	ApproxValue float64 `json:"approx_value_inr"`
+	MarketCap   float64 `json:"market_cap_inr,omitempty"`
 }
 
 // Recommendation is the durable record of one run.
