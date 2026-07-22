@@ -245,7 +245,7 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 		Excluded:       excluded,
 		Warnings:       warnings,
 	}
-	rec.MessageText = FormatMessage(rec, p.TopK)
+	rec.MessageText = FormatMessage(rec, p.TopK, p.LookbackMonths)
 
 	if err := d.Store.WriteRecommendation(ctx, rec); err != nil {
 		return RunResult{}, fmt.Errorf("write recommendation: %w", err)

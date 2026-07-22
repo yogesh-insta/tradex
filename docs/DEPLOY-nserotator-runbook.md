@@ -7,7 +7,7 @@ auth), so the morning path is: **verify → deploy → test-fire**. ~15 minutes.
 ## 0. What was built overnight
 
 - `cmd/nserotator` + `internal/nserotator/` — monthly advisory job per spec 20
-  (Yahoo daily data → 12m momentum on Nifty 200 → top 8 equal-weight →
+  (Yahoo daily data → 6m momentum on Nifty 200 → top 8 equal-weight →
   regime filter → diff vs your portfolio → Telegram + GCS record).
 - Config: `config/config.nserotator.cloudrun.yaml` (+ `.dev.yaml`),
   `config/universe-nse200.yaml`, `config/holidays-nse.yaml` (2026, lunar
@@ -18,7 +18,7 @@ auth), so the morning path is: **verify → deploy → test-fire**. ~15 minutes.
   `deploy/scripts/deploy-nserotator.sh` (same pattern as calendarpoller;
   same project, same bucket, reuses your TELEGRAM_* env).
 - Tests: signal math pinned to the Python backtest (EMA vs pandas
-  `adjust=False`, momentum vs `pct_change(12)`), diff/rotation cases,
+  `adjust=False`, momentum vs `pct_change(6)` default), diff/rotation cases,
   last-trading-day gate with holiday fixtures, INR formatting.
 
 Verified end-to-end in Python emulation against the real downloaded data:
