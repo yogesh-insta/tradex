@@ -73,7 +73,10 @@ func TestAuthRejectsUnauthenticated(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
-	for _, path := range []string{"/", "/api/overview", "/api/calendar", "/api/pl?account=eu-indices", "/api/pl/daily?account=eu-indices"} {
+	for _, path := range []string{
+		"/", "/api/overview", "/api/calendar", "/api/pl?account=eu-indices",
+		"/api/pl/daily?account=eu-indices", "/api/etf", "/api/nse", "/api/ui-config",
+	} {
 		resp, err := http.Get(ts.URL + path)
 		if err != nil {
 			t.Fatal(err)
@@ -372,5 +375,39 @@ func TestUIServesHTML(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "Tradex") {
 		t.Fatal("missing brand")
+	}
+}
+
+func TestLatestNSEReportIncludesPortfolio(t *testing.T) {
+	const prefix = "gs://tradex-demo-state/nserotator"
+	rec := []byte(`{"month":"2026-07","orders":[{"side":"SELL","symbol":"FOO","qty":1}],"top_ranked":[]}`)
+	pf := []byte(`{"as_of":"2026-07-20","total_capital_inr":100000,"holdings":[{"symbol":"BAR","qty":10,"avg_price":50}]}`)
+	objects := StaticObjectFetcher{
+		prefix + "/recommendation-2026-07.json": rec,
+		prefix + "/portfolio.json":              pf,
+	}
+	svc, err := NewService(testCfg(), Deps{Objects: objects})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.now = func() time.Time { return time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC) }
+
+	out, err := svc.LatestNSEReport(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["month"] != "2026-07" {
+		t.Fatalf("month: %v", out["month"])
+	}
+	pfOut, ok := out["portfolio"].(map[string]any)
+	if !ok {
+		t.Fatalf("portfolio: %#v", out["portfolio"])
+	}
+	if pfOut["as_of"] != "2026-07-20" {
+		t.Fatalf("as_of: %v", pfOut["as_of"])
+	}
+	holdings, ok := pfOut["holdings"].([]any)
+	if !ok || len(holdings) != 1 {
+		t.Fatalf("holdings: %#v", pfOut["holdings"])
 	}
 }
