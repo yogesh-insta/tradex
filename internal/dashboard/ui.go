@@ -206,6 +206,11 @@ function nsePrice(v) {
   const n = Number(v);
   return n >= 100 ? "₹" + n.toFixed(0) : "₹" + n.toFixed(2);
 }
+function nsePct(v) {
+  if (v == null || v === "") return "—";
+  const pct = Math.round(Number(v) * 1000) / 10;
+  return (pct > 0 ? "+" : "") + pct + "%";
+}
 function nseMc(v) {
   if (v == null || v <= 0) return "n/a";
   const cr = v / 1e7;
@@ -465,8 +470,50 @@ async function refresh() {
     nseHtml = '<div class="empty">' + esc(nse.error) + '</div>';
   } else if (nse) {
     let html = '<div class="nse-container">';
+    const pf = nse.portfolio;
+    if (pf) {
+      if (pf.error) {
+        html += '<div class="empty">' + esc(pf.error) + '</div>';
+      } else {
+        const holdings = pf.holdings || [];
+        html += '<div class="nse-section">';
+        html += '<h3>Current holdings <span class="meta">(portfolio.json)</span></h3>';
+        if (!holdings.length) {
+          html += '<div class="meta">No positions</div>';
+        } else {
+          html += '<div class="scroll"><table><thead><tr><th>Symbol</th><th class="num">Qty</th><th class="num">Avg</th><th class="num">Last</th><th class="num">% vs avg</th><th class="num">Unrealized</th></tr></thead><tbody>';
+          for (const h of holdings) {
+            const pct = h.pct_vs_avg;
+            const unr = h.unrealized_inr;
+            html += '<tr><td><strong>' + esc(h.symbol) + '</strong></td><td class="num">' + (h.qty ?? "—") +
+              '</td><td class="num">' + nsePrice(h.avg_price) +
+              '</td><td class="num">' + nsePrice(h.last_price) +
+              '</td><td class="num ' + cls(pct) + '">' + nsePct(pct) +
+              '</td><td class="num ' + cls(unr) + '">' + (unr == null ? "—" : "₹" + nsePrice(unr)) +
+              '</td></tr>';
+          }
+          html += '</tbody></table></div>';
+          const qs = pf.quote_summary;
+          if (qs) {
+            html += '<div class="meta">Portfolio mark-to-market';
+            if (qs.priced_holdings != null && qs.total_holdings != null && qs.priced_holdings < qs.total_holdings) {
+              html += ' (' + qs.priced_holdings + '/' + qs.total_holdings + ' priced)';
+            }
+            html += ': <span class="' + cls(qs.unrealized_inr) + '">₹' + nsePrice(qs.unrealized_inr) +
+              ' (' + nsePct(qs.pct_vs_avg) + ')</span>';
+            html += ' · cost ₹' + nsePrice(qs.cost_inr) + ' → value ₹' + nsePrice(qs.value_inr);
+            html += '</div>';
+          }
+        }
+        html += '<div class="meta">as of ' + esc(pf.as_of || '—');
+        if (pf.total_capital_inr != null) html += ' · capital ₹' + nsePrice(pf.total_capital_inr);
+        if (pf.notes) html += ' · ' + esc(pf.notes);
+        html += '</div></div>';
+      }
+    }
+    const recLabel = nse.month ? ' (' + nse.month + ')' : '';
     const regime = nse.regime_invested ? "INVESTED" : "CASH — exit all positions";
-    html += '<div class="meta">Regime: <strong>' + esc(regime) + '</strong>';
+    html += '<div class="meta">Last recommendation' + esc(recLabel) + ': <strong>' + esc(regime) + '</strong>';
     if (nse.nifty_close != null && nse.nifty_ema200 != null) {
       html += ' · Nifty ' + Number(nse.nifty_close).toFixed(0) + ' vs EMA200 ' + Number(nse.nifty_ema200).toFixed(0);
     }
@@ -486,7 +533,7 @@ async function refresh() {
     }
     if (nse.orders && nse.orders.length) {
       html += '<div class="nse-section">';
-      html += '<h3>Orders</h3>';
+      html += '<h3>Recommended orders <span class="meta">(last rotator run' + esc(recLabel) + ')</span></h3>';
       html += '<div class="scroll"><table><thead><tr><th>Side</th><th>Symbol</th><th>Name</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>';
       for (const o of nse.orders) {
         html += '<tr class="' + (o.side === "SELL" ? "alert" : "") + '"><td>' + esc(o.side) +
