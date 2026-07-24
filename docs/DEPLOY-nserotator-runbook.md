@@ -13,7 +13,7 @@ auth), so the morning path is: **verify → deploy → test-fire**. ~15 minutes.
   `config/universe-nse200.yaml`, `config/holidays-nse.yaml` (2026, lunar
   dates marked ~ESTIMATE — validate against the official NSE list).
 - Seed state: `data/nserotator-portfolio.json` — your 14 holdings from the
-  screenshots, capital ₹40,00,000.
+  2026-07-24 Kite screenshots, capital ₹76,00,000.
 - Deploy: `deploy/docker/Dockerfile.nserotator`,
   `deploy/scripts/deploy-nserotator.sh` (same pattern as calendarpoller;
   same project, same bucket, reuses your TELEGRAM_* env).
