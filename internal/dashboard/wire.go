@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/storage"
 
 	"github.com/yogesh-insta/tradex/internal/config"
+	"github.com/yogesh-insta/tradex/internal/nserotator"
 	"github.com/yogesh-insta/tradex/internal/oanda"
 )
 
@@ -36,6 +37,7 @@ func BuildFromConfig(ctx context.Context, cfg *config.Config, log *slog.Logger) 
 	var accounts AccountReader
 	var objects ObjectFetcher
 	var ledger LedgerQuerier
+	var nseQuoter NSEQuoter
 	calURI := d.CalendarFile
 	if calURI == "" {
 		calURI = d.GCS.CalendarObject
@@ -89,10 +91,15 @@ func BuildFromConfig(ctx context.Context, cfg *config.Config, log *slog.Logger) 
 			// trade ledger publisher is operating.
 			ledger = oandaLedger
 		}
+		nseQuoter = YahooNSEQuoter{Client: &nserotator.YahooClient{
+			Timeout: 30 * time.Second,
+			Retries: 3,
+			Log:     log,
+		}}
 	}
 
 	svc, err := NewService(d, Deps{
-		Accounts: accounts, Objects: objects, Ledger: ledger,
+		Accounts: accounts, Objects: objects, Ledger: ledger, NSEQuoter: nseQuoter,
 		Log: log, CalendarURI: calURI, StatusURI: statusURI,
 	})
 	if err != nil {

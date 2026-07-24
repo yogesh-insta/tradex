@@ -77,5 +77,6 @@ URL="$(gcloud run services describe "${SERVICE}" --project="${PROJECT}" --region
 echo "==> service_url=${URL}"
 
 echo "==> dashboard deploy complete"
-echo "    URL=${URL}?token=${DASHBOARD_TOKEN}"
-echo "    Note: URLs for ETF data fetch from gs://tradex-demo-state/etfmonitor/"
+echo "    URL=${URL}"
+echo "    Open with ?token=<DASHBOARD_TOKEN from .env> (token is never printed here)"
+echo "    Note: ETF/NSE data fetch from gs://tradex-demo-state/{etfmonitor,nserotator}/"
