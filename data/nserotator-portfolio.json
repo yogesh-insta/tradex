@@ -1,21 +1,21 @@
 {
-  "as_of": "2026-07-20",
-  "total_capital_inr": 4000000,
+  "as_of": "2026-07-24",
+  "total_capital_inr": 7600000,
   "holdings": [
-    {"symbol": "LUMAXTECH", "qty": 150, "avg_price": 1734.84},
-    {"symbol": "RECLTD", "qty": 930, "avg_price": 354.50},
-    {"symbol": "SHILCTECH", "qty": 22, "avg_price": 3993.00},
-    {"symbol": "SHRIPISTON", "qty": 100, "avg_price": 2693.58},
-    {"symbol": "TDPOWERSYS", "qty": 250, "avg_price": 428.88},
-    {"symbol": "INOXINDIA", "qty": 195, "avg_price": 1506.69},
-    {"symbol": "SAMMAANCAP", "qty": 2000, "avg_price": 153.41},
+    {"symbol": "LAURUSLABS", "qty": 450, "avg_price": 1572.64},
+    {"symbol": "BHEL", "qty": 1500, "avg_price": 418.30},
+    {"symbol": "NATIONALUM", "qty": 1500, "avg_price": 343.17},
+    {"symbol": "MCX", "qty": 200, "avg_price": 2789.00},
+    {"symbol": "BHARATFORG", "qty": 300, "avg_price": 2193.33},
+    {"symbol": "SHRIRAMFIN", "qty": 900, "avg_price": 1057.45},
     {"symbol": "ALCODIS", "qty": 375, "avg_price": 393.69},
-    {"symbol": "DCXINDIA", "qty": 840, "avg_price": 220.06},
-    {"symbol": "JWL", "qty": 1050, "avg_price": 287.85},
-    {"symbol": "APOLLO", "qty": 1355, "avg_price": 208.36},
-    {"symbol": "ISGEC", "qty": 280, "avg_price": 1062.05},
-    {"symbol": "KAYNES", "qty": 75, "avg_price": 3921.17},
-    {"symbol": "TECHNOE", "qty": 226, "avg_price": 1254.44}
+    {"symbol": "CGPOWER", "qty": 470, "avg_price": 917.00},
+    {"symbol": "PREMIERENE", "qty": 400, "avg_price": 1032.44},
+    {"symbol": "POWERINDIA", "qty": 20, "avg_price": 32230.00},
+    {"symbol": "CUMMINSIND", "qty": 105, "avg_price": 5575.00},
+    {"symbol": "NYKAA", "qty": 1500, "avg_price": 320.00},
+    {"symbol": "RADICO", "qty": 150, "avg_price": 4056.45},
+    {"symbol": "ENRIN", "qty": 150, "avg_price": 3270.00}
   ],
-  "notes": "Seeded from Kite app screenshots 2026-07-20 (14 holdings, mkt val ~37.86L). Most are outside the Nifty 200 universe: the first run will recommend selling them. Execution and tax decisions are manual."
+  "notes": "Updated from Kite screenshots 2026-07-24 (14 holdings, mkt val ~76.09L; SHRIRAMFIN LTP not visible so capital uses ~avg). ALCODIS remains from prior book. Most names are in Nifty 200; ALCODIS is outside and will likely be recommended for sale. Execution and tax decisions are manual."
 }
