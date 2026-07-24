@@ -131,35 +131,17 @@ const uiHTML = `<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <div class="health-dot" id="health-dot" title="overall health"></div>
   <h1><span>Tradex</span> Ops</h1>
   <div class="meta header-meta" id="meta">loading…</div>
 </header>
 <div class="banner" id="banner"></div>
 <div class="grid">
-  <section class="full" id="sec-accounts">
-    <h2>1 · Open trades &amp; account</h2>
-    <div id="account-summaries"></div>
-    <div id="trades"></div>
-  </section>
-  <section id="sec-health">
-    <h2>2 · Engine / bot health</h2>
-    <div id="health"></div>
-  </section>
-  <section id="sec-cal">
-    <h2>3 · Economic calendar</h2>
-    <div id="calendar"></div>
-  </section>
-  <section class="full" id="sec-pl">
-    <h2>4 · P&amp;L summary</h2>
-    <div id="pl"></div>
-  </section>
   <section class="full" id="sec-etf">
-    <h2>5 · ASX ETF monitor</h2>
+    <h2>1 · ASX ETF monitor</h2>
     <div id="etf"></div>
   </section>
   <section class="full" id="sec-nse">
-    <h2>6 · NSE momentum rotator</h2>
+    <h2>2 · NSE momentum rotator</h2>
     <div id="nse"></div>
   </section>
 </div>
@@ -176,11 +158,6 @@ async function api(path) {
   if (!r.ok) throw new Error(path + " " + r.status);
   return r.json();
 }
-function money(n) {
-  if (n == null || Number.isNaN(n)) return "—";
-  const s = Number(n).toFixed(2);
-  return (n > 0 ? "+" : "") + s;
-}
 function cls(n) { return n > 0 ? "pos" : n < 0 ? "neg" : ""; }
 // etfmonitor stores trailing returns as {Value, OK} objects (Go Ret type).
 function etfRet(r) {
@@ -195,7 +172,6 @@ function etfPct(v) {
   if (v == null || v === "") return "—";
   return Math.round(Number(v) * 100) + "%";
 }
-// nserotator recommendation JSON uses top_ranked[], momentum (fraction), company_name.
 function nseMom(m) {
   if (m == null || m === "") return "—";
   const pct = Math.round(Number(m) * 100);
@@ -221,196 +197,16 @@ function nseMc(v) {
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 }
-function pill(level, text) {
-  return '<span class="pill ' + esc(level || "unknown") + '">' + esc(text) + '</span>';
-}
-function worstLevel(levels) {
-  const rank = { red: 3, amber: 2, unknown: 1, green: 0 };
-  let worst = "unknown", score = -1;
-  for (const l of levels) {
-    const s = rank[l] ?? 1;
-    if (s > score) { score = s; worst = l; }
-  }
-  return worst;
-}
-function setDot(level) {
-  const el = document.getElementById("health-dot");
-  el.className = "health-dot " + (level || "unknown");
-}
 async function refresh() {
   const cfg = await api("/api/ui-config");
-  const accounts = cfg.accounts || [];
-  const promises = [
-    api("/api/overview"),
-    api("/api/calendar"),
-    ...accounts.map(account => api("/api/pl/daily?account=" + encodeURIComponent(account))),
+  const [etf, nse] = await Promise.all([
     api("/api/etf").catch(() => ({error: "not available"})),
     api("/api/nse").catch(() => ({error: "not available"})),
-  ];
-  const [ov, cal, ...rest] = await Promise.all(promises);
-  const etf = rest[rest.length - 2];
-  const nse = rest[rest.length - 1];
-  const dailyByAccount = rest.slice(0, -2);
+  ]);
   document.getElementById("meta").textContent =
     "tz=" + cfg.reporting_tz +
     " · refresh=" + (cfg.refresh_interval_ms/1000) + "s" +
-    (cfg.mock ? " · MOCK" : "") +
-    " · as_of " + (ov.as_of || "");
-
-  const banners = [];
-  if (cal.warning) banners.push(cal.warning);
-  if (ov.errors && ov.errors.length) banners.push(ov.errors.join(" · "));
-  const b = document.getElementById("banner");
-  if (banners.length) { b.textContent = banners.join(" | "); b.classList.add("show"); }
-  else { b.classList.remove("show"); b.textContent = ""; }
-
-  setDot(worstLevel((ov.health || []).map(e => e.level)));
-
-  // Accounts
-  let sumHtml = '<div class="account-grid">';
-  for (const a of (ov.accounts || [])) {
-    sumHtml += '<div class="card">' +
-      '<div class="title"><span>' + esc(a.name) + '</span><span>' + esc(a.system_state || "—") + '</span></div>' +
-      '<div class="kv">' +
-      '<div><b>NAV</b>' + money(a.nav) + '</div>' +
-      '<div><b>Unrealized</b><span class="' + cls(a.unrealized_pl) + '">' + money(a.unrealized_pl) + '</span></div>' +
-      '<div><b>Realized today*</b><span class="' + cls(a.realized_pl_today) + '">' + money(a.realized_pl_today) + '</span></div>' +
-      '<div><b>Margin used / avail</b>' + money(a.margin_used) + ' / ' + money(a.margin_available) + '</div>' +
-      '</div>' +
-      (a.error ? '<div class="err">' + esc(a.error) + '</div>' : '') +
-      '</div>';
-  }
-  sumHtml += '</div><div class="footnote">* realized today ≈ OANDA resettablePL when available</div>';
-  document.getElementById("account-summaries").innerHTML = sumHtml || '<div class="empty">No accounts</div>';
-
-  const trades = ov.trades || [];
-  if (!trades.length) {
-    document.getElementById("trades").innerHTML = '<div class="empty">No open trades</div>';
-  } else {
-    let mobile = '<div class="cards mobile-only">';
-    for (const x of trades) {
-      mobile += '<div class="card row-card">' +
-        '<div class="top"><span class="inst">' + esc(x.instrument) + ' · ' + esc(x.direction) +
-        '</span><span class="' + cls(x.unrealized_pl) + '">' + money(x.unrealized_pl) + '</span></div>' +
-        '<div class="top"><span class="acct">' + esc(x.account) + '</span><span class="acct">' + esc(x.open_time) + '</span></div>' +
-        '<div class="stats">' +
-        '<div><span>Units</span> ' + esc(x.units) + '</div>' +
-        '<div><span>Entry</span> ' + esc(x.entry) + '</div>' +
-        '<div><span>SL</span> ' + (x.stop_loss || "—") + '</div>' +
-        '<div><span>TP</span> ' + (x.take_profit || "—") + '</div>' +
-        '</div></div>';
-    }
-    mobile += '</div>';
-    let t = '<div class="scroll desktop-only"><table><thead><tr><th>Account</th><th>Instrument</th><th>Dir</th><th class="num">Units</th><th class="num">Entry</th><th class="num">SL</th><th class="num">TP</th><th class="num">uPL</th><th>Open (UTC)</th></tr></thead><tbody>';
-    for (const x of trades) {
-      t += '<tr><td>' + esc(x.account) + '</td><td>' + esc(x.instrument) + '</td><td>' + esc(x.direction) +
-        '</td><td class="num">' + esc(x.units) + '</td><td class="num">' + esc(x.entry) +
-        '</td><td class="num">' + (x.stop_loss || "—") + '</td><td class="num">' + (x.take_profit || "—") +
-        '</td><td class="num ' + cls(x.unrealized_pl) + '">' + money(x.unrealized_pl) +
-        '</td><td>' + esc(x.open_time) + '</td></tr>';
-    }
-    t += '</tbody></table></div>';
-    document.getElementById("trades").innerHTML = mobile + t;
-  }
-
-  // Health
-  let hm = '<div class="cards mobile-only">';
-  let h = '<div class="scroll desktop-only"><table><thead><tr><th>Account</th><th>State</th><th>Stream</th><th>Heartbeat</th><th>Reconcile</th><th>Calendar</th><th>Level</th><th>Source</th></tr></thead><tbody>';
-  for (const e of (ov.health || [])) {
-    const hb = e.heartbeat_age_ms != null ? (e.heartbeat_age_ms/1000).toFixed(0) + "s" : "—";
-    const calA = e.calendar_as_of_age_ms != null ? (e.calendar_as_of_age_ms/1000).toFixed(0) + "s" : "—";
-    const rec = e.last_reconcile_ok == null ? "—" : (e.last_reconcile_ok ? "ok" : "fail");
-    const calTxt = (e.calendar_fresh ? "fresh " : "stale ") + calA;
-    hm += '<div class="card row-card">' +
-      '<div class="top"><span class="inst">' + esc(e.account) + '</span>' + pill(e.level, e.level) + '</div>' +
-      '<div class="stats">' +
-      '<div><span>State</span> ' + esc(e.state) + '</div>' +
-      '<div><span>Stream</span> ' + esc(e.stream) + '</div>' +
-      '<div><span>Heartbeat</span> ' + hb + '</div>' +
-      '<div><span>Reconcile</span> ' + rec + '</div>' +
-      '<div><span>Calendar</span> ' + calTxt + '</div>' +
-      '<div><span>Source</span> ' + esc(e.status_source) + '</div>' +
-      '</div>' +
-      ((e.notes && e.notes.length) ? '<div class="footnote">' + esc(e.notes.join(" · ")) + '</div>' : '') +
-      '</div>';
-    h += '<tr><td>' + esc(e.account) + '</td><td>' + esc(e.state) + '</td><td>' + esc(e.stream) +
-      '</td><td>' + hb + '</td><td>' + rec + '</td><td>' + calTxt +
-      '</td><td>' + pill(e.level, e.level) + '</td><td>' + esc(e.status_source) + '</td></tr>';
-    if (e.notes && e.notes.length) {
-      h += '<tr><td colspan="8" class="meta">' + esc(e.notes.join(" · ")) + '</td></tr>';
-    }
-  }
-  hm += '</div>';
-  h += '</tbody></table></div>';
-  document.getElementById("health").innerHTML = hm + h;
-
-  // Calendar
-  let c = "";
-  if (cal.warning) c += '<div class="banner show">' + esc(cal.warning) + '</div>';
-  c += '<div class="footnote">as_of ' + esc(cal.as_of || "—") + (cal.fresh ? " · fresh" : " · stale/missing") + '</div>';
-  const evs = cal.events || [];
-  if (!evs.length) c += '<div class="empty">No upcoming high-impact events</div>';
-  else {
-    let cm = '<div class="cards mobile-only">';
-    for (const e of evs) {
-      cm += '<div class="card row-card">' +
-        '<div class="top"><span class="inst">' + esc(e.title) + '</span><span class="acct">' + esc(e.impact) + '</span></div>' +
-        '<div class="stats">' +
-        '<div><span>Region</span> ' + esc(e.region) + '</div>' +
-        '<div><span>UTC</span> ' + esc(e.time_utc) + '</div>' +
-        '<div><span>Berlin</span> ' + esc(e.time_berlin) + '</div>' +
-        '</div></div>';
-    }
-    cm += '</div>';
-    c += cm + '<div class="scroll desktop-only"><table><thead><tr><th>Region</th><th>Title</th><th>Impact</th><th>UTC</th><th>Europe/Berlin</th></tr></thead><tbody>';
-    for (const e of evs) {
-      c += '<tr><td>' + esc(e.region) + '</td><td>' + esc(e.title) + '</td><td>' + esc(e.impact) +
-        '</td><td>' + esc(e.time_utc) + '</td><td>' + esc(e.time_berlin) + '</td></tr>';
-    }
-    c += '</tbody></table></div>';
-  }
-  document.getElementById("calendar").innerHTML = c;
-
-  // P&L
-  let p = '<div class="footnote">Day buckets: DATE(close_time) in ' + esc(cfg.reporting_tz) + '</div>';
-  if (!dailyByAccount.length) {
-    p += '<div class="empty">No account configured for P&amp;L</div>';
-  } else {
-    for (const daily of dailyByAccount) {
-      p += '<div class="card" style="margin-top:10px">' +
-        '<div class="title"><span>' + esc(daily.account) + '</span></div>' +
-        '<div class="kv">' +
-        '<div><b>7-day total</b><span class="' + cls(daily.total_7d) + '">' + money(daily.total_7d) + '</span></div>' +
-        '<div><b>All-time</b><span class="' + cls(daily.total_all) + '">' + money(daily.total_all) + '</span></div>' +
-        '<div><b>Close fills</b>' + esc(daily.trade_count_all) + '</div>' +
-        '</div></div>';
-      if (daily.errors && daily.errors.length) {
-        p += '<div class="err">' + esc(daily.errors.join(" · ")) + '</div>';
-        continue;
-      }
-      const days = (daily.days || []).slice().reverse(); // oldest → newest for bars
-      if (days.length) {
-        const max = Math.max(...days.map(d => Math.abs(d.realized_pl)), 1);
-        p += '<div class="bars">';
-        for (const d of days) {
-          const hgt = Math.max(2, Math.round(40 * Math.abs(d.realized_pl) / max));
-          p += '<i class="' + (d.realized_pl < 0 ? "neg" : "") + '" style="height:' + hgt + 'px" title="' +
-            esc(d.day) + ': ' + money(d.realized_pl) + '"></i>';
-        }
-        p += '</div>';
-        p += '<div class="scroll"><table><thead><tr><th>Day</th><th class="num">Realized</th><th class="num">Close fills</th><th class="num">W</th><th class="num">L</th></tr></thead><tbody>';
-        for (const d of (daily.days || [])) {
-          p += '<tr><td>' + esc(d.day) + '</td><td class="num ' + cls(d.realized_pl) + '">' + money(d.realized_pl) +
-            '</td><td class="num">' + esc(d.trade_count) + '</td><td class="num">' + esc(d.wins||0) +
-            '</td><td class="num">' + esc(d.losses||0) + '</td></tr>';
-        }
-        p += '</tbody></table></div>';
-      } else {
-        p += '<div class="empty">No closed trades in lookback window</div>';
-      }
-    }
-  }
-  document.getElementById("pl").innerHTML = p;
+    (cfg.mock ? " · MOCK" : "");
 
   // ETF Monitor
   let etfHtml = '';
@@ -475,7 +271,13 @@ async function refresh() {
       if (pf.error) {
         html += '<div class="empty">' + esc(pf.error) + '</div>';
       } else {
-        const holdings = pf.holdings || [];
+        const holdings = (pf.holdings || []).slice().sort((a, b) => {
+          const ua = a.unrealized_inr, ub = b.unrealized_inr;
+          if (ua == null && ub == null) return 0;
+          if (ua == null) return 1;
+          if (ub == null) return -1;
+          return ub - ua;
+        });
         html += '<div class="nse-section">';
         html += '<h3>Current holdings <span class="meta">(portfolio.json)</span></h3>';
         if (!holdings.length) {
@@ -489,7 +291,7 @@ async function refresh() {
               '</td><td class="num">' + nsePrice(h.avg_price) +
               '</td><td class="num">' + nsePrice(h.last_price) +
               '</td><td class="num ' + cls(pct) + '">' + nsePct(pct) +
-              '</td><td class="num ' + cls(unr) + '">' + (unr == null ? "—" : "₹" + nsePrice(unr)) +
+              '</td><td class="num ' + cls(unr) + '">' + (unr == null ? "—" : nsePrice(unr)) +
               '</td></tr>';
           }
           html += '</tbody></table></div>';
@@ -499,14 +301,14 @@ async function refresh() {
             if (qs.priced_holdings != null && qs.total_holdings != null && qs.priced_holdings < qs.total_holdings) {
               html += ' (' + qs.priced_holdings + '/' + qs.total_holdings + ' priced)';
             }
-            html += ': <span class="' + cls(qs.unrealized_inr) + '">₹' + nsePrice(qs.unrealized_inr) +
+            html += ': <span class="' + cls(qs.unrealized_inr) + '">' + nsePrice(qs.unrealized_inr) +
               ' (' + nsePct(qs.pct_vs_avg) + ')</span>';
-            html += ' · cost ₹' + nsePrice(qs.cost_inr) + ' → value ₹' + nsePrice(qs.value_inr);
+            html += ' · cost ' + nsePrice(qs.cost_inr) + ' → value ' + nsePrice(qs.value_inr);
             html += '</div>';
           }
         }
         html += '<div class="meta">as of ' + esc(pf.as_of || '—');
-        if (pf.total_capital_inr != null) html += ' · capital ₹' + nsePrice(pf.total_capital_inr);
+        if (pf.total_capital_inr != null) html += ' · capital ' + nsePrice(pf.total_capital_inr);
         if (pf.notes) html += ' · ' + esc(pf.notes);
         html += '</div></div>';
       }
