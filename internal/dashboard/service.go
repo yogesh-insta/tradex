@@ -19,6 +19,7 @@ type Deps struct {
 	Accounts AccountReader
 	Objects  ObjectFetcher
 	Ledger   LedgerQuerier
+	NSEQuoter NSEQuoter // optional; enriches NSE portfolio with live marks
 	Log      *slog.Logger
 
 	CalendarURI string
@@ -396,7 +397,36 @@ func (s *Service) LatestNSEReport(ctx context.Context) (map[string]any, error) {
 	if err := json.Unmarshal(data, &report); err != nil {
 		return map[string]any{"error": "failed to parse recommendation"}, nil
 	}
+	if pdata, err := s.deps.Objects.Fetch(ctx, prefix+"/portfolio.json"); err == nil {
+		var portfolio map[string]any
+		if json.Unmarshal(pdata, &portfolio) == nil {
+			if symbols := portfolioSymbols(portfolio); len(symbols) > 0 {
+				enrichPortfolioQuotes(portfolio, s.fetchNSEQuotes(ctx, symbols))
+			}
+			report["portfolio"] = portfolio
+		}
+	} else {
+		report["portfolio"] = map[string]any{"error": "portfolio.json not found"}
+	}
 	return report, nil
+}
+
+func portfolioSymbols(portfolio map[string]any) []string {
+	holdings, ok := portfolio["holdings"].([]any)
+	if !ok {
+		return nil
+	}
+	symbols := make([]string, 0, len(holdings))
+	for _, item := range holdings {
+		h, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if sym, _ := h["symbol"].(string); sym != "" {
+			symbols = append(symbols, sym)
+		}
+	}
+	return symbols
 }
 
 // UIConfig exposes refresh interval etc. to the embedded page.
