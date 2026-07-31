@@ -39,15 +39,37 @@ func FormatMessage(rec Recommendation, lookbackMonths, emaDays int) string {
 		}
 	}
 
-	if len(rec.Holds) > 0 {
+	// A HOLD can now sit well below the entry rank, so show which list saved it.
+	if len(rec.HoldsInfo) > 0 {
+		fmt.Fprintf(&b, "\nHOLD (kept while inside top %d on either list):\n", rec.Params.ExitRankN)
+		for _, h := range rec.HoldsInfo {
+			fmt.Fprintf(&b, "  %-12s %s · %s\n", h.Symbol,
+				formatRank(h.Rank, rec.Params.LookbackMonths),
+				formatRank(h.RankSlow, rec.Params.ExitLookbackMonths))
+		}
+	} else if len(rec.Holds) > 0 {
 		fmt.Fprintf(&b, "\nHOLD: %s\n", strings.Join(rec.Holds, ", "))
 	}
 
 	if len(rec.TopRanked) > 0 {
-		fmt.Fprintf(&b, "\nTop momentum (%dm):\n", lookbackMonths)
-		for _, r := range rec.TopRanked {
-			fmt.Fprintf(&b, "  %s · %s · %+.0f%% · %s\n",
-				formatRankedLabel(r), formatStockPriceINR(r.LastClose), r.Momentum*100, formatMarketCapINR(r.MarketCap))
+		if rec.Params.ExitLookbackMonths > 0 {
+			fmt.Fprintf(&b, "\nTop momentum (%dm entry ★ / hold to rank %d):\n",
+				lookbackMonths, rec.Params.ExitRankN)
+		} else {
+			fmt.Fprintf(&b, "\nTop momentum (%dm):\n", lookbackMonths)
+		}
+		for i, r := range rec.TopRanked {
+			marker := "  "
+			if i < rec.Params.TopK {
+				marker = "★ "
+			}
+			slow := ""
+			if r.RankSlow > 0 {
+				slow = fmt.Sprintf(" (12m %+.0f%%, #%d)", r.MomentumSlow*100, r.RankSlow)
+			}
+			fmt.Fprintf(&b, "%s%2d. %s · %s · %+.0f%%%s · %s\n",
+				marker, i+1, formatRankedLabel(r), formatStockPriceINR(r.LastClose),
+				r.Momentum*100, slow, formatMarketCapINR(r.MarketCap))
 		}
 	}
 
@@ -56,6 +78,15 @@ func FormatMessage(rec Recommendation, lookbackMonths, emaDays int) string {
 	}
 	b.WriteString("\nAdvisory only — you place all orders. Update portfolio.json after executing.")
 	return b.String()
+}
+
+// formatRank renders a 1-based list position; 0 means the symbol is not on
+// that list at all (too little history, or ranked below everything shown).
+func formatRank(rank, months int) string {
+	if rank <= 0 {
+		return fmt.Sprintf("%dm —", months)
+	}
+	return fmt.Sprintf("%dm #%d", months, rank)
 }
 
 // formatMarketCapINR renders Yahoo market cap (INR) in Indian crore units.

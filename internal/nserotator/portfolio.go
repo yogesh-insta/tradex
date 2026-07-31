@@ -52,18 +52,42 @@ type Order struct {
 }
 
 // Recommendation is the durable record of one run.
+//
+// Holds and HoldsInfo describe the same set: Holds stays a plain symbol list
+// for consumers written before the exit-hysteresis change (the dashboard
+// renders historical files straight out of GCS), HoldsInfo adds the ranks.
 type Recommendation struct {
-	RunAt          string   `json:"run_at"` // RFC3339
-	Month          string   `json:"month"`  // YYYY-MM
-	RegimeInvested bool     `json:"regime_invested"`
-	NiftyClose     float64  `json:"nifty_close"`
-	NiftyEMA       float64  `json:"nifty_ema200"`
-	Orders         []Order  `json:"orders"`
-	Holds          []string `json:"holds"`
-	TopRanked      []Ranked `json:"top_ranked"`
-	Excluded       []string `json:"excluded_symbols,omitempty"`
-	Warnings       []string `json:"warnings,omitempty"`
-	MessageText    string   `json:"message_text"` // full Telegram text (manual retrieval fallback)
+	RunAt          string          `json:"run_at"` // RFC3339
+	Month          string          `json:"month"`  // YYYY-MM
+	RegimeInvested bool            `json:"regime_invested"`
+	NiftyClose     float64         `json:"nifty_close"`
+	NiftyEMA       float64         `json:"nifty_ema200"`
+	Orders         []Order         `json:"orders"`
+	Holds          []string        `json:"holds"`
+	HoldsInfo      []HoldInfo      `json:"holds_info,omitempty"`
+	TopRanked      []Ranked        `json:"top_ranked"`
+	Params         RunParamsRecord `json:"params,omitempty"`
+	Excluded       []string        `json:"excluded_symbols,omitempty"`
+	Warnings       []string        `json:"warnings,omitempty"`
+	MessageText    string          `json:"message_text"` // full Telegram text (manual retrieval fallback)
+}
+
+// HoldInfo explains why a holding survived the exit rule: its position on the
+// fast (entry) and slow (exit) momentum lists. Ranks are 1-based; 0 = unranked.
+type HoldInfo struct {
+	Symbol   string `json:"symbol"`
+	Rank     int    `json:"rank"`
+	RankSlow int    `json:"rank_slow"`
+}
+
+// RunParamsRecord stamps the parameters a run used onto its recommendation, so
+// a stored record is self-describing and the dashboard can label itself
+// without reading config.
+type RunParamsRecord struct {
+	LookbackMonths     int `json:"lookback_months"`
+	ExitLookbackMonths int `json:"exit_lookback_months"`
+	TopK               int `json:"top_k"`
+	ExitRankN          int `json:"exit_rank_n"`
 }
 
 // Heartbeat records the last successful run for the dead-man check.
