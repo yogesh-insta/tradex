@@ -60,3 +60,18 @@ func TestFormatMessageConfigurableEMA(t *testing.T) {
 		t.Fatalf("expected EMA100 in message:\n%s", msg)
 	}
 }
+
+func TestFilterPolicyExcludedRemovesFromRanking(t *testing.T) {
+	scores := map[string]float64{"ADANIENSOL": 0.9, "TITAN": 0.5}
+	notes := filterPolicyExcluded(scores, "ADANIENSOL")
+	if len(notes) != 1 || notes[0] != "ADANIENSOL (excluded by policy)" {
+		t.Fatalf("notes: %v", notes)
+	}
+	if _, ok := scores["ADANIENSOL"]; ok {
+		t.Fatal("ADANIENSOL should be removed from scores")
+	}
+	ranked := Rank(scores)
+	if len(ranked) != 1 || ranked[0].Symbol != "TITAN" {
+		t.Fatalf("ranked: %+v", ranked)
+	}
+}

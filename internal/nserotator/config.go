@@ -33,6 +33,16 @@ type Config struct {
 		LocalStateDir string `yaml:"local_state_dir"`
 		YahooTimeoutS int    `yaml:"yahoo_timeout_s"`
 		DriftCheck    bool   `yaml:"drift_check"`
+		// ExcludedSymbols are never ranked or bought (policy blocklist). Held
+		// names still appear in SELL orders when not in the target portfolio.
+		ExcludedSymbols []string `yaml:"excluded_symbols"`
+		// ExitLookbackMonths is the slower momentum list that keeps a holding
+		// alive: a name is sold only when it sits outside the top ExitRankN on
+		// BOTH the LookbackMonths and ExitLookbackMonths lists.
+		ExitLookbackMonths int `yaml:"exit_lookback_months"`
+		// ExitRankN is the exit rank buffer; must be >= TopK. Defaults to
+		// 3*TopK. Setting it equal to TopK restores plain top-K rotation.
+		ExitRankN int `yaml:"exit_rank_n"`
 	} `yaml:"nserotator"`
 
 	Telegram struct {
@@ -73,6 +83,15 @@ func (c *Config) validate() error {
 	}
 	if r.RegimeEMADays <= 0 {
 		r.RegimeEMADays = 200
+	}
+	if r.ExitLookbackMonths <= 0 {
+		r.ExitLookbackMonths = 12
+	}
+	if r.ExitRankN <= 0 {
+		r.ExitRankN = 3 * r.TopK
+	}
+	if r.ExitRankN < r.TopK {
+		return fmt.Errorf("nserotator config: exit_rank_n (%d) must be >= top_k (%d)", r.ExitRankN, r.TopK)
 	}
 	if r.YahooTimeoutS <= 0 {
 		r.YahooTimeoutS = 30

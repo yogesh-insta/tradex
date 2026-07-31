@@ -170,6 +170,9 @@ func mockStack(d config.DashboardConfig) (AccountReader, ObjectFetcher, LedgerQu
 	statusJSON := []byte(fmt.Sprintf(`{"as_of":%q,"accounts":[{"name":%q,"state":"ACTIVE","stream_up":true,"last_tick_age_ms":800,"last_heartbeat_at":%q,"last_reconcile_ok":true,"market_data_stale":false}]}`,
 		now.Format(time.RFC3339), name, now.Add(-5*time.Second).Format(time.RFC3339)))
 	objects := StaticObjectFetcher{calURI: calJSON, statusURI: statusJSON}
+	for uri, body := range mockNSEState(now) {
+		objects[uri] = body
+	}
 
 	var trades []ClosedTrade
 	for i := 0; i < 35; i++ {
