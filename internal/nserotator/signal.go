@@ -186,6 +186,12 @@ func RankIndex(ranked []Ranked) map[string]int {
 //
 // A holding absent from both lists — policy-excluded, stale, delisted, or
 // never scored — is not in the keep set and is therefore sold.
+//
+// More survivors than topK is a seeded-book state the backtest never reaches
+// (starting empty, |held| <= topK is preserved every month), so it only shows
+// up live: a portfolio.json carrying more names than the strategy sizes for.
+// The overflow is cut by weakest rank, never by position in the file — cutting
+// by file order sold a rank-5 name to keep a rank-149 one on the 2026-08 run.
 func BuildTarget(ranked, rankedSlow []Ranked, holdings []Holding, topK, exitN int) []string {
 	if topK <= 0 {
 		return nil
@@ -207,16 +213,23 @@ func BuildTarget(ranked, rankedSlow []Ranked, holdings []Holding, topK, exitN in
 		keep[r.Symbol] = true
 	}
 
+	survivors := make([]string, 0, len(holdings))
+	seen := make(map[string]bool, len(holdings))
+	for _, h := range holdings {
+		if keep[h.Symbol] && !seen[h.Symbol] {
+			survivors = append(survivors, h.Symbol)
+			seen[h.Symbol] = true
+		}
+	}
+	if len(survivors) > topK {
+		survivors = cutWeakest(survivors, ranked, rankedSlow, topK)
+	}
+
 	target := make([]string, 0, topK)
 	inTarget := make(map[string]bool, topK)
-	for _, h := range holdings {
-		if len(target) == topK {
-			break
-		}
-		if keep[h.Symbol] && !inTarget[h.Symbol] {
-			target = append(target, h.Symbol)
-			inTarget[h.Symbol] = true
-		}
+	for _, s := range survivors {
+		target = append(target, s)
+		inTarget[s] = true
 	}
 	for i, r := range ranked {
 		if i >= topK || len(target) == topK {
@@ -228,4 +241,42 @@ func BuildTarget(ranked, rankedSlow []Ranked, holdings []Holding, topK, exitN in
 		}
 	}
 	return target
+}
+
+// cutWeakest keeps the topK strongest of survivors and drops the rest. Strength
+// is a symbol's best (lowest) position across the two lists, so a name held by
+// either lookback is judged on whichever ranks it higher — the same asymmetry
+// the keep set uses. Survivors retain their input order; only membership is
+// decided here. Ties break on symbol for determinism.
+func cutWeakest(survivors []string, ranked, rankedSlow []Ranked, topK int) []string {
+	fast, slow := RankIndex(ranked), RankIndex(rankedSlow)
+	best := func(sym string) int {
+		r := 1 << 30
+		if i, ok := fast[sym]; ok && i < r {
+			r = i
+		}
+		if i, ok := slow[sym]; ok && i < r {
+			r = i
+		}
+		return r
+	}
+	byRank := append([]string(nil), survivors...)
+	sort.Slice(byRank, func(i, j int) bool {
+		ri, rj := best(byRank[i]), best(byRank[j])
+		if ri != rj {
+			return ri < rj
+		}
+		return byRank[i] < byRank[j]
+	})
+	kept := make(map[string]bool, topK)
+	for _, s := range byRank[:topK] {
+		kept[s] = true
+	}
+	out := survivors[:0:0]
+	for _, s := range survivors {
+		if kept[s] {
+			out = append(out, s)
+		}
+	}
+	return out
 }
