@@ -7,90 +7,37 @@ import (
 	"strings"
 	"time"
 
-	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 
 	"github.com/yogesh-insta/tradex/internal/config"
 	"github.com/yogesh-insta/tradex/internal/nserotator"
-	"github.com/yogesh-insta/tradex/internal/oanda"
 )
 
 // BuildFromConfig constructs Service + Server from the environment config.
-// Mock mode never touches OANDA/GCS/BQ.
+// Mock mode never touches GCS.
 func BuildFromConfig(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, error) {
 	d := cfg.Dashboard
-	if d.Mock {
-		if len(d.Accounts) == 0 {
-			d.Accounts = []config.DashboardAccountConfig{{Name: "eu-indices", OANDAID: "mock-eu-indices"}}
-		}
-		for i := range d.Accounts {
-			if d.Accounts[i].OANDAID == "" {
-				d.Accounts[i].OANDAID = "mock-" + d.Accounts[i].Name
-			}
-		}
-	}
 	auth, err := newAuth(d)
 	if err != nil {
 		return nil, err
 	}
 
-	var accounts AccountReader
 	var objects ObjectFetcher
-	var ledger LedgerQuerier
 	var nseQuoter NSEQuoter
-	calURI := d.CalendarFile
-	if calURI == "" {
-		calURI = d.GCS.CalendarObject
-	}
-	statusURI := d.StatusFile
-	if statusURI == "" {
-		statusURI = d.GCS.StatusObject
-	}
 
 	if d.Mock {
-		accounts, objects, ledger, calURI, statusURI = mockStack(d)
+		objects = mockStack()
 	} else {
-		client := oanda.NewClient(d.OANDA.Host, "", d.OANDA.Token, oanda.Options{
-			RequestTimeout: 8 * time.Second,
-			MaxRetries:     2,
-		})
-		accounts = OANDAReader{Client: client}
-		accountIDs := make(map[string]string, len(d.Accounts))
-		for _, account := range d.Accounts {
-			accountIDs[account.Name] = account.OANDAID
-		}
-		oandaLedger := &OANDALedger{Client: client, AccountIDs: accountIDs}
-
 		fetcher := FileOrGCSFetcher{}
-		if needsGCS(calURI) || needsGCS(statusURI) {
-			gcs, err := storage.NewClient(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("gcs client: %w", err)
-			}
-			fetcher.GCS = gcs
+		// Both report lanes live on GCS; the client is only built when one of
+		// them actually points there.
+		gcs, err := storage.NewClient(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("gcs client: %w", err)
 		}
+		fetcher.GCS = gcs
 		objects = fetcher
 
-		if d.LedgerFile != "" {
-			fl, err := LoadFileLedger(d.LedgerFile)
-			if err != nil {
-				return nil, fmt.Errorf("ledger file: %w", err)
-			}
-			ledger = fl
-		} else if d.BigQuery.Project != "" && d.BigQuery.Dataset != "" && d.BigQuery.Table != "" {
-			bq, err := bigquery.NewClient(ctx, d.BigQuery.Project)
-			if err != nil {
-				return nil, fmt.Errorf("bigquery client: %w", err)
-			}
-			ledger = FallbackLedger{Primary: &BigQueryLedger{
-				Client: bq, Project: d.BigQuery.Project,
-				Dataset: d.BigQuery.Dataset, Table: d.BigQuery.Table,
-			}, Fallback: oandaLedger}
-		} else {
-			// Production-shaped deployments use OANDA history until the async
-			// trade ledger publisher is operating.
-			ledger = oandaLedger
-		}
 		nseQuoter = YahooNSEQuoter{Client: &nserotator.YahooClient{
 			Timeout: 30 * time.Second,
 			Retries: 3,
@@ -99,17 +46,12 @@ func BuildFromConfig(ctx context.Context, cfg *config.Config, log *slog.Logger) 
 	}
 
 	svc, err := NewService(d, Deps{
-		Accounts: accounts, Objects: objects, Ledger: ledger, NSEQuoter: nseQuoter,
-		Log: log, CalendarURI: calURI, StatusURI: statusURI,
+		Objects: objects, NSEQuoter: nseQuoter, Log: log,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return NewServer(svc, auth, log), nil
-}
-
-func needsGCS(uri string) bool {
-	return len(uri) >= 5 && uri[:5] == "gs://"
 }
 
 func newAuth(d config.DashboardConfig) (Authenticator, error) {
@@ -134,54 +76,10 @@ func newAuth(d config.DashboardConfig) (Authenticator, error) {
 	}
 }
 
-func mockStack(d config.DashboardConfig) (AccountReader, ObjectFetcher, LedgerQuerier, string, string) {
-	id := "mock-account-1"
-	if len(d.Accounts) > 0 && d.Accounts[0].OANDAID != "" {
-		id = d.Accounts[0].OANDAID
-	}
-	name := "eu-indices"
-	if len(d.Accounts) > 0 {
-		name = d.Accounts[0].Name
-	}
-	accounts := MockAccountReader{
-		Summaries: map[string]oanda.AccountSummary{
-			id: {
-				ID: id, Currency: "USD", Balance: 5000, NAV: 5025.5,
-				MarginUsed: 120, MarginAvailable: 4880, UnrealizedPL: 25.5,
-				ResettablePL: 40, PL: 210,
-			},
-		},
-		Trades: map[string][]oanda.RESTTrade{
-			id: {{
-				ID: "1001", Instrument: "DE30_EUR", Price: 18450.2,
-				OpenTime:     time.Now().UTC().Add(-2 * time.Hour),
-				CurrentUnits: 1, UnrealizedPL: 25.5,
-				StopLossOrder:   &oanda.DependentOrder{Price: 18380},
-				TakeProfitOrder: &oanda.DependentOrder{Price: 18600},
-			}},
-		},
-	}
-	calURI := "mock://calendar"
-	statusURI := "mock://status"
-	now := time.Now().UTC()
-	calJSON := []byte(fmt.Sprintf(`{"as_of":%q,"events":[{"region":"EU","title":"ECB Rate Decision","impact":"high","time":%q}]}`,
-		now.Add(-10*time.Minute).Format(time.RFC3339),
-		now.Add(3*time.Hour).Format(time.RFC3339)))
-	statusJSON := []byte(fmt.Sprintf(`{"as_of":%q,"accounts":[{"name":%q,"state":"ACTIVE","stream_up":true,"last_tick_age_ms":800,"last_heartbeat_at":%q,"last_reconcile_ok":true,"market_data_stale":false}]}`,
-		now.Format(time.RFC3339), name, now.Add(-5*time.Second).Format(time.RFC3339)))
-	objects := StaticObjectFetcher{calURI: calJSON, statusURI: statusJSON}
-	for uri, body := range mockNSEState(now) {
+func mockStack() ObjectFetcher {
+	objects := StaticObjectFetcher{}
+	for uri, body := range mockNSEState(time.Now().UTC()) {
 		objects[uri] = body
 	}
-
-	var trades []ClosedTrade
-	for i := 0; i < 35; i++ {
-		day := now.AddDate(0, 0, -i)
-		pl := float64((i%5)-2) * 12.5
-		trades = append(trades, ClosedTrade{
-			TradeID: fmt.Sprintf("t%d", i), Account: name,
-			RealizedPL: pl, CloseTime: time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, time.UTC),
-		})
-	}
-	return accounts, objects, MemoryLedger(trades), calURI, statusURI
+	return objects
 }

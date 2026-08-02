@@ -209,7 +209,6 @@ dashboard:
     mode: "bearer"
     token: "${DASHBOARD_TOKEN}"
   calendar_file: "data/calendar-state.json"
-  ledger_file: "data/trade-ledger.json"
 `
 	cfg, err := Load(writeConfig(t, body), EnvResolver{})
 	if err != nil {
@@ -220,9 +219,6 @@ dashboard:
 	}
 	if cfg.Dashboard.ListenAddr != ":8080" {
 		t.Fatalf("listen default = %q", cfg.Dashboard.ListenAddr)
-	}
-	if len(cfg.Dashboard.Accounts) != 1 || cfg.Dashboard.Accounts[0].Name != "eu-indices" {
-		t.Fatalf("accounts not inherited: %+v", cfg.Dashboard.Accounts)
 	}
 
 	// Fail closed without bearer token.
