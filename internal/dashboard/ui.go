@@ -46,6 +46,17 @@ const uiHTML = `<!DOCTYPE html>
     font-size: 13px; line-height: 1.4;
   }
   .banner.show { display: block; }
+  nav.lanes { display: flex; gap: 6px; flex: 0 0 auto; }
+  nav.lanes a {
+    color: var(--muted); text-decoration: none; font-family: var(--mono);
+    font-size: 12px; padding: 5px 11px; border: 1px solid var(--border);
+    border-radius: 999px; white-space: nowrap; line-height: 1.2;
+  }
+  nav.lanes a:hover { color: var(--text); border-color: var(--muted); }
+  nav.lanes a.on {
+    color: var(--bg); background: var(--accent); border-color: var(--accent);
+    font-weight: 600;
+  }
   .grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
   @media (min-width: 960px) {
     body { padding: 16px 20px 40px; }
@@ -147,21 +158,36 @@ const uiHTML = `<!DOCTYPE html>
 <body>
 <header>
   <h1><span>Tradex</span> Ops</h1>
+  <nav class="lanes" id="lanes"></nav>
   <div class="meta header-meta" id="meta">loading…</div>
 </header>
 <div class="banner" id="banner"></div>
 <div class="grid">
-  <section class="full" id="sec-etf">
-    <h2>1 · ASX ETF monitor</h2>
+  <section class="full" id="sec-etf" hidden>
+    <h2>ASX ETF monitor</h2>
     <div id="etf"></div>
   </section>
-  <section class="full" id="sec-nse">
-    <h2>2 · NSE momentum rotator</h2>
+  <section class="full" id="sec-nse" hidden>
+    <h2>NSE momentum rotator</h2>
     <div id="nse"></div>
   </section>
 </div>
 <script>
 const token = new URLSearchParams(location.search).get("token") || "";
+// Which lane this page shows. "/" keeps its historical landing spot on ETF.
+const LANE = location.pathname.replace(/\/+$/, "") === "/nse" ? "nse" : "etf";
+const LANES = [["etf", "/etf", "ASX ETF"], ["nse", "/nse", "NSE rotator"]];
+function renderLanes() {
+  // location.search carries ?token=…; every lane link must keep it or the next
+  // page loads unauthenticated. Escaped because it is attacker-controllable.
+  const q = esc(location.search);
+  document.getElementById("lanes").innerHTML = LANES.map(
+    ([id, href, label]) =>
+      '<a href="' + href + q + '"' + (LANE === id ? ' class="on"' : '') +
+      '>' + esc(label) + '</a>').join("");
+  document.getElementById("sec-" + LANE).hidden = false;
+  document.title = "Tradex · " + (LANE === "nse" ? "NSE rotator" : "ASX ETF");
+}
 const authHeaders = () => {
   const h = {"Accept":"application/json"};
   if (token) h["Authorization"] = "Bearer " + token;
@@ -214,9 +240,11 @@ function esc(s) {
 }
 async function refresh() {
   const cfg = await api("/api/ui-config");
+  // Only the visible lane is fetched — the other endpoint is not just hidden,
+  // it is never requested, so NSE quote lookups stop firing on the ETF page.
   const [etf, nse] = await Promise.all([
-    api("/api/etf").catch(() => ({error: "not available"})),
-    api("/api/nse").catch(() => ({error: "not available"})),
+    LANE === "etf" ? api("/api/etf").catch(() => ({error: "not available"})) : null,
+    LANE === "nse" ? api("/api/nse").catch(() => ({error: "not available"})) : null,
   ]);
   document.getElementById("meta").textContent =
     "tz=" + cfg.reporting_tz +
@@ -439,6 +467,7 @@ async function loop() {
     setTimeout(loop, 5000);
   }
 }
+renderLanes();
 loop();
 </script>
 </body>
