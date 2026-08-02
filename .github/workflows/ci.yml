@@ -38,21 +38,23 @@ jobs:
       - name: go test (race)
         run: go test -race ./...
 
-      - name: build trader
-        run: go build ./cmd/trader
-
-      - name: build backtester
-        run: go build ./cmd/backtester
-
-      - name: build dashboard
-        run: go build ./cmd/dashboard
+      # Every command, named or not — the previous per-command steps went stale
+      # the moment the live trading engine was removed.
+      - name: build all commands
+        run: go build ./...
 
   docker:
     name: Docker build
     runs-on: ubuntu-latest
     needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [dashboard, nserotator, etfmonitor, calendarpoller]
     steps:
       - uses: actions/checkout@v4
 
-      - name: docker build
-        run: docker build -f deploy/docker/Dockerfile -t tradex:ci .
+      - name: docker build ${{ matrix.service }}
+        run: |
+          docker build -f deploy/docker/Dockerfile.${{ matrix.service }} \
+            -t tradex-${{ matrix.service }}:ci .

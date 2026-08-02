@@ -26,7 +26,7 @@ func main() {
 
 func run() error {
 	var configPath string
-	flag.StringVar(&configPath, "config", "config/config.dev.yaml", "path to environment config YAML")
+	flag.StringVar(&configPath, "config", "config/config.dashboard.cloudrun.yaml", "path to environment config YAML")
 	flag.Parse()
 
 	cfg, err := config.Load(configPath, config.EnvResolver{})
