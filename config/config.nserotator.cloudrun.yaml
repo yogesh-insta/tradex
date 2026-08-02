@@ -10,13 +10,22 @@ nserotator:
   exit_lookback_months: 12
   exit_rank_n: 30
   regime_ema_days: 200
-  # Regime filter OFF: stay invested through downtrends. Backtest 2010-2026 on
-  # this exact config — filter on 35.6% CAGR / -13.3% max DD / 112x, filter off
-  # 45.6% CAGR / -28.1% max DD / 338x. The filter costs ~10 points of CAGR and
-  # also halves the exit hysteresis' turnover benefit (8.6% -> 19.2% per month)
-  # because a forced liquidation overrides every hold decision. Deliberately
-  # trading a deeper drawdown for ~3x terminal wealth; flip to true to restore
-  # the gate. See docs/specs/20-nse-momentum-rotator.md § Regime filter.
+  # Regime filter OFF: stay invested through downtrends. Backtest 2011-01 to
+  # 2026-06 on this exact config — filter ON 36.1% CAGR / -23.2% max DD / 119x,
+  # filter OFF 49.4% CAGR / -26.8% max DD / 503x. The filter costs ~13 points of
+  # CAGR and more than doubles the exit hysteresis' turnover (8.5% -> 19.2% per
+  # month) because a forced liquidation overrides every hold decision.
+  #
+  # It buys only 3.6 points of drawdown for those 13 points of CAGR, which is a
+  # far worse exchange rate than a 15% per-name stop (-4 CAGR for -5.2 DD) — so
+  # the filter is not the tool to reach for if drawdown becomes the concern.
+  # Deliberately trading a slightly deeper drawdown for ~4x terminal wealth;
+  # flip to true to restore the gate.
+  #
+  # NOTE: an earlier version of this comment claimed -13.3% max DD with the
+  # filter ON. That was wrong by ~10 points and made the filter look like
+  # drawdown insurance it never provided. Re-measured 2026-08-02.
+  # See docs/specs/20-nse-momentum-rotator.md § Regime filter.
   regime_filter: false
   universe_file: config/universe-nse200.yaml
   holidays_file: config/holidays-nse.yaml

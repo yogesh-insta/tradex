@@ -56,23 +56,65 @@ book to cash while `^NSEI` closes below its `regime_ema_days: 200` EMA. When
 off, the EMA is still fetched and reported — it just no longer drives the
 target. Implemented by `ShouldHoldEquity` (`signal.go`).
 
-Backtest, Nifty 200, 2010-01 → 2026-07 (16.6y), 0.12% round-trip costs, at the
+Backtest, Nifty 200, 2011-01 → 2026-06 (15.4y), 0.12% round-trip costs, at the
 shipped `top_k: 10` / `exit_rank_n: 30` / blocklist applied:
 
 | | CAGR | max DD | Sharpe | turnover/mo | growth |
 | --- | --- | --- | --- | --- | --- |
-| `regime_filter: true` | 35.6% | −13.3% | 1.69 | 19.2% | 112x |
-| **`regime_filter: false` (shipped)** | **45.6%** | **−28.1%** | **1.68** | **8.6%** | **338x** |
+| `regime_filter: true` | 36.1% | −23.2% | 1.61 | 19.2% | 119x |
+| **`regime_filter: false` (shipped)** | **49.4%** | **−26.8%** | **1.69** | **8.5%** | **503x** |
 
-The filter costs ~10 points of CAGR. It also *halves the benefit of the exit
+> Re-measured 2026-08-02. The previous table claimed −13.3% max DD with the
+> filter ON, which was wrong by ~10 points and made the filter look like
+> drawdown insurance it never provided. The shipped choice is *more* clearly
+> right on the corrected numbers, not less.
+
+The filter costs ~13 points of CAGR. It also *halves the benefit of the exit
 hysteresis*: a forced liquidation overrides every hold decision, so turnover
-more than doubles (8.6% → 19.2%). Roughly 3x terminal wealth is being traded
-for a max drawdown of −28% instead of −13%.
+more than doubles (8.5% → 19.2%). Roughly 4x terminal wealth is being traded
+for a max drawdown of −26.8% instead of −23.2% — only 3.6 points of drawdown
+relief for 13 points of CAGR. A 15% per-name stop is a far better exchange rate
+(−4 CAGR for −5.2 DD) if drawdown is the real concern; see § Early exits.
 
 **Flip it back to `true` if** the drawdown is not survivable in practice — a
 strategy abandoned at the bottom returns 0%, which beats neither variant. This
 is a risk-appetite decision, not an optimisation; do not "tune" it on the same
 16.6 years that chose it.
+
+### Early exits
+
+There is no mid-month exit. A name that breaks down on day 2 is carried to
+month-end, and even then leaves only if it is outside the top `exit_rank_n` on
+both lists. This is deliberate — every overlay tested makes the strategy worse
+on a risk-adjusted basis. Measured 2026-08-02 on daily closes, rotation
+unchanged, the exiting slot sitting in cash until the next rebalance:
+
+| overlay | CAGR | max DD | Sharpe | turnover/mo | fires on |
+| --- | --- | --- | --- | --- | --- |
+| **none (shipped)** | **46.0%** | −26.5% | **1.64** | 8.5% | — |
+| fixed stop 15% from entry | 42.0% | **−21.3%** | 1.58 | 24.0% | 9.4% of slots |
+| fixed stop 20% | 42.7% | −26.3% | 1.58 | 15.0% | 4.0% |
+| trailing stop 25% | 43.0% | −28.4% | 1.60 | 12.8% | 2.6% |
+| trailing stop 15% | 36.8% | −22.9% | 1.43 | 34.8% | 15.0% |
+| trailing stop 10% | 25.6% | −24.8% | 1.13 | 77.4% | 37.5% |
+| exit below own EMA100 | 34.8% | −20.8% | 1.47 | 49.2% | 23.8% |
+| exit below own EMA200 | 38.7% | −29.5% | 1.49 | 23.4% | 9.5% |
+
+(Baseline differs from the table above because returns here are walked daily
+rather than resampled to month-end; compare only within this table.)
+
+**No overlay improves Sharpe.** Momentum's edge is tolerating drawdown in
+individual names, so stops mostly sell winners during ordinary noise — a 10%
+trailing stop fires on 37.5% of slots and churns 77% of the book per month.
+Tightening the rank rule instead does not work either: `exit_rank_n: 10` gives
+44.8% CAGR at a *worse* −30.4% drawdown.
+
+The one defensible variant is a **fixed 15% stop below entry**: −4 points of
+CAGR for 5.2 points less drawdown, the best exchange rate available and ~2.5x
+more efficient than the regime filter. It needs no code — place GTT stops at
+the broker; the rotator stays monthly. Note the sim exits at the close of the
+day the level breaks, while real stops fill intraday and gap through, and that
+tripling turnover has a short-term capital-gains cost no backtest here models.
 
 ### Honest expectations
 
