@@ -10,13 +10,8 @@ import (
 	"strings"
 )
 
-// Source labels for the Telegram review header (exact strings from the spec).
-const (
-	SourceFinnhubPrimary = "Finnhub Primary"
-	SourceGeminiFallback = "Gemini Fallback Pipeline"
-)
-
-// TelegramClient posts calendar review messages via Bot API sendMessage.
+// TelegramClient posts messages via the Bot API sendMessage method.
+// Shared by the NSE rotator and the ASX ETF monitor.
 type TelegramClient struct {
 	BotToken   string
 	ChatID     string
@@ -38,20 +33,6 @@ func (c *TelegramClient) apiRoot() string {
 	return "https://api.telegram.org"
 }
 
-// SendCalendarReview posts: source header + fenced json block.
-func (c *TelegramClient) SendCalendarReview(ctx context.Context, source string, state State) error {
-	if c.BotToken == "" || c.ChatID == "" {
-		return fmt.Errorf("telegram: bot token or chat id empty")
-	}
-	bodyJSON, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	text := source + "\n\n```json\n" + string(bodyJSON) + "\n```"
-	return c.SendMessage(ctx, text)
-}
-
-// SendMessage posts a plain text message via Bot API sendMessage.
 func (c *TelegramClient) SendMessage(ctx context.Context, text string) error {
 	if c.BotToken == "" || c.ChatID == "" {
 		return fmt.Errorf("telegram: bot token or chat id empty")
@@ -90,4 +71,13 @@ func (c *TelegramClient) SendMessage(ctx context.Context, text string) error {
 		return fmt.Errorf("telegram: not ok: %s", tg.Description)
 	}
 	return nil
+}
+
+// truncate caps an error body so a failed send cannot dump a whole response
+// into the logs. Moved here from the economic-calendar poller.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }

@@ -85,24 +85,13 @@ type Config struct {
 // DashboardConfig — 14-dashboard.md (Cloud Run read-only ops UI; not used by trader).
 type DashboardConfig struct {
 	ListenAddr string `yaml:"listen_addr"`
-	// Mock enables explicit fixture mode for local demos (no OANDA/GCS/BQ).
+	// Mock enables explicit fixture mode for local demos (no GCS).
 	Mock bool `yaml:"mock"`
 
-	Auth     DashboardAuthConfig      `yaml:"auth"`
-	OANDA    DashboardOANDAConfig     `yaml:"oanda"`    // optional; falls back to top-level oanda
-	Accounts []DashboardAccountConfig `yaml:"accounts"` // optional; falls back to top-level accounts
-
-	GCS      DashboardGCSConfig      `yaml:"gcs"`
-	BigQuery DashboardBigQueryConfig `yaml:"bigquery"`
-
-	// Local file overrides (dev/mock). When set, used instead of GCS/BQ.
-	CalendarFile string `yaml:"calendar_file"`
-	StatusFile   string `yaml:"status_file"`
-	LedgerFile   string `yaml:"ledger_file"` // JSON closed-trade rows for local PL
+	Auth DashboardAuthConfig `yaml:"auth"`
 
 	CacheTTL DashboardCacheTTLConfig `yaml:"cache_ttl"`
 	UI       DashboardUIConfig       `yaml:"ui"`
-	Health   DashboardHealthConfig   `yaml:"health"`
 }
 
 // DashboardAuthConfig selects bearer token or IAP identity gate.
@@ -541,64 +530,21 @@ func (c *Config) applyDefaults() {
 	c.Dashboard.applyDefaults(c)
 }
 
-func (d *DashboardConfig) applyDefaults(root *Config) {
+func (d *DashboardConfig) applyDefaults(_ *Config) {
 	if d.ListenAddr == "" {
 		d.ListenAddr = ":8080"
 	}
 	if d.Auth.Mode == "" {
 		d.Auth.Mode = "bearer"
 	}
-	if d.OANDA.Host == "" {
-		d.OANDA.Host = root.OANDA.Host
-	}
-	if d.OANDA.Token == "" {
-		d.OANDA.Token = root.OANDA.Token
-	}
-	if len(d.Accounts) == 0 {
-		for _, a := range root.Accounts {
-			if !a.Active {
-				continue
-			}
-			d.Accounts = append(d.Accounts, DashboardAccountConfig{
-				Name: a.Name, OANDAID: a.OANDAID,
-			})
-		}
-	}
 	if d.CacheTTL.Overview == 0 {
 		d.CacheTTL.Overview = Duration(60 * time.Second)
-	}
-	if d.CacheTTL.Calendar == 0 {
-		d.CacheTTL.Calendar = Duration(60 * time.Second)
-	}
-	if d.CacheTTL.PL == 0 {
-		d.CacheTTL.PL = Duration(180 * time.Second)
 	}
 	if d.UI.RefreshInterval == 0 {
 		d.UI.RefreshInterval = Duration(20 * time.Second)
 	}
-	if d.UI.PLDailyLookbackDays == 0 {
-		d.UI.PLDailyLookbackDays = 30
-	}
 	if d.UI.ReportingTZ == "" {
 		d.UI.ReportingTZ = "UTC"
-	}
-	if d.Health.HeartbeatStale == 0 {
-		d.Health.HeartbeatStale = Duration(120 * time.Second)
-	}
-	if d.Health.TickStale == 0 {
-		d.Health.TickStale = Duration(60 * time.Second)
-	}
-	if d.Health.CalendarStale == 0 {
-		d.Health.CalendarStale = Duration(90 * time.Minute)
-	}
-	if d.BigQuery.Dataset == "" {
-		d.BigQuery.Dataset = "tradex"
-	}
-	if d.BigQuery.Table == "" {
-		d.BigQuery.Table = "trade_ledger"
-	}
-	if d.BigQuery.Project == "" {
-		d.BigQuery.Project = root.Project
 	}
 }
 
