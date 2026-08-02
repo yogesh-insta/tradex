@@ -126,6 +126,7 @@ func runOnce(ctx context.Context, cfg *nserotator.Config, log *slog.Logger, forc
 		ExcludedSymbols:    cfg.Rotator.ExcludedSymbols,
 		ExitLookbackMonths: cfg.Rotator.ExitLookbackMonths,
 		ExitRankN:          cfg.Rotator.ExitRankN,
+		RegimeFilter:       *cfg.Rotator.RegimeFilter, // validate() guarantees non-nil
 	}
 	return nserotator.Run(ctx, params, deps)
 }

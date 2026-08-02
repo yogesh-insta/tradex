@@ -47,6 +47,9 @@ type RunParams struct {
 	// BuildTarget. Zero values fall back to plain top-K rotation.
 	ExitLookbackMonths int
 	ExitRankN          int
+	// RegimeFilter gates the book to cash below the index EMA. When false the
+	// regime is still computed and reported but never empties the target.
+	RegimeFilter bool
 }
 
 const (
@@ -217,10 +220,11 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 	rankedSlow := Rank(scoresSlow)
 	slowIdx := RankIndex(rankedSlow)
 
-	// 5. Target picks (empty in cash regime). Entry on the fast list, exit only
-	// when outside the buffer on BOTH lists — see BuildTarget.
+	// 5. Target picks. Entry on the fast list, exit only when outside the
+	// buffer on BOTH lists — see BuildTarget. With RegimeFilter on, a below-EMA
+	// index leaves the target empty and BuildOrders sells the whole book.
 	var target []string
-	if invested {
+	if ShouldHoldEquity(invested, p.RegimeFilter) {
 		target = BuildTarget(ranked, rankedSlow, pf.Holdings, p.TopK, p.ExitRankN)
 	}
 	diff := BuildOrders(pf.Holdings, target, lastClose, pf.TotalCapitalINR, p.TopK)
@@ -337,6 +341,7 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 		RunAt:          now.UTC().Format(time.RFC3339),
 		Month:          month,
 		RegimeInvested: invested,
+		RegimeFilter:   &p.RegimeFilter,
 		NiftyClose:     niftyClose,
 		NiftyEMA:       niftyEMA,
 		Orders:         append(append([]Order{}, diff.Sells...), diff.Buys...),

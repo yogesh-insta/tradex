@@ -98,10 +98,12 @@ func mockRecommendation(now time.Time) nserotator.Recommendation {
 	for _, h := range holdsInfo {
 		holds = append(holds, h.Symbol)
 	}
+	regimeFilterOff := false
 	return nserotator.Recommendation{
 		RunAt:          now.Format(time.RFC3339),
 		Month:          now.Format("2006-01"),
 		RegimeInvested: true,
+		RegimeFilter:   &regimeFilterOff, // matches the shipped config
 		NiftyClose:     26480,
 		NiftyEMA:       24910,
 		Orders: []nserotator.Order{

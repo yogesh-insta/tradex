@@ -57,19 +57,23 @@ type Order struct {
 // for consumers written before the exit-hysteresis change (the dashboard
 // renders historical files straight out of GCS), HoldsInfo adds the ranks.
 type Recommendation struct {
-	RunAt          string          `json:"run_at"` // RFC3339
-	Month          string          `json:"month"`  // YYYY-MM
-	RegimeInvested bool            `json:"regime_invested"`
-	NiftyClose     float64         `json:"nifty_close"`
-	NiftyEMA       float64         `json:"nifty_ema200"`
-	Orders         []Order         `json:"orders"`
-	Holds          []string        `json:"holds"`
-	HoldsInfo      []HoldInfo      `json:"holds_info,omitempty"`
-	TopRanked      []Ranked        `json:"top_ranked"`
-	Params         RunParamsRecord `json:"params,omitempty"`
-	Excluded       []string        `json:"excluded_symbols,omitempty"`
-	Warnings       []string        `json:"warnings,omitempty"`
-	MessageText    string          `json:"message_text"` // full Telegram text (manual retrieval fallback)
+	RunAt          string `json:"run_at"` // RFC3339
+	Month          string `json:"month"`  // YYYY-MM
+	RegimeInvested bool   `json:"regime_invested"`
+	// RegimeFilter records whether RegimeInvested actually gated this run.
+	// Pointer + omitempty: absent on records written before the filter became
+	// configurable, where it was always on — readers must treat nil as true.
+	RegimeFilter *bool           `json:"regime_filter,omitempty"`
+	NiftyClose   float64         `json:"nifty_close"`
+	NiftyEMA     float64         `json:"nifty_ema200"`
+	Orders       []Order         `json:"orders"`
+	Holds        []string        `json:"holds"`
+	HoldsInfo    []HoldInfo      `json:"holds_info,omitempty"`
+	TopRanked    []Ranked        `json:"top_ranked"`
+	Params       RunParamsRecord `json:"params,omitempty"`
+	Excluded     []string        `json:"excluded_symbols,omitempty"`
+	Warnings     []string        `json:"warnings,omitempty"`
+	MessageText  string          `json:"message_text"` // full Telegram text (manual retrieval fallback)
 }
 
 // HoldInfo explains why a holding survived the exit rule: its position on the

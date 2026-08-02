@@ -61,6 +61,64 @@ func TestFormatMessageConfigurableEMA(t *testing.T) {
 	}
 }
 
+func TestShouldHoldEquity(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		invested, filter bool
+		want             bool
+	}{
+		{"filter on, above EMA", true, true, true},
+		{"filter on, below EMA — go to cash", false, true, false},
+		{"filter off, below EMA — stay invested", false, false, true},
+		{"filter off, above EMA", true, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ShouldHoldEquity(tc.invested, tc.filter); got != tc.want {
+				t.Fatalf("ShouldHoldEquity(%v, %v) = %v want %v", tc.invested, tc.filter, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFormatMessageRegimeWording(t *testing.T) {
+	on, off := true, false
+	for _, tc := range []struct {
+		name    string
+		rec     Recommendation
+		want    string
+		notWant string
+	}{
+		{"invested", Recommendation{RegimeInvested: true, RegimeFilter: &off}, "INVESTED", "exit all"},
+		{"below EMA, filter on", Recommendation{RegimeFilter: &on}, "CASH — exit all positions", ""},
+		// The bug this guards: "exit all positions" printed above BUY orders.
+		{"below EMA, filter off", Recommendation{RegimeFilter: &off}, "staying invested", "exit all"},
+		{"legacy record, filter field absent", Recommendation{}, "CASH — exit all positions", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := FormatMessage(tc.rec, 6, 200)
+			if !strings.Contains(msg, tc.want) {
+				t.Fatalf("want %q in:\n%s", tc.want, msg)
+			}
+			if tc.notWant != "" && strings.Contains(msg, tc.notWant) {
+				t.Fatalf("did not want %q in:\n%s", tc.notWant, msg)
+			}
+		})
+	}
+}
+
+func TestConfigRegimeFilterDefaultsOn(t *testing.T) {
+	var c Config
+	c.Rotator.UniverseFile = "u.yaml"
+	c.Rotator.HolidaysFile = "h.yaml"
+	c.Rotator.LocalStateDir = "d"
+	if err := c.validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if c.Rotator.RegimeFilter == nil || !*c.Rotator.RegimeFilter {
+		t.Fatal("absent regime_filter must default to ON")
+	}
+}
+
 func TestFilterPolicyExcludedRemovesFromRanking(t *testing.T) {
 	scores := map[string]float64{"ADANIENSOL": 0.9, "TITAN": 0.5}
 	notes := filterPolicyExcluded(scores, "ADANIENSOL")

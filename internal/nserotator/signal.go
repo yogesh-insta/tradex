@@ -72,6 +72,15 @@ func RegimeInvested(index Series, emaDays int) (invested bool, lastClose, ema fl
 	return lastClose > ema, lastClose, ema, true
 }
 
+// ShouldHoldEquity reports whether a run builds a target portfolio at all.
+// With regimeFilter off the index reading is advisory: the book stays invested
+// through downtrends. With it on, a below-EMA index forces 100% cash and
+// BuildOrders sells everything. See docs/specs/20 § Regime filter for why the
+// shipped config turns it off.
+func ShouldHoldEquity(regimeInvested, regimeFilter bool) bool {
+	return regimeInvested || !regimeFilter
+}
+
 // Stale reports whether the series' latest candle is older than maxAge
 // relative to now (catches renames/delistings/suspensions).
 func Stale(s Series, now time.Time, maxAge time.Duration) bool {

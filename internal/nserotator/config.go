@@ -1,8 +1,13 @@
 // Package nserotator implements the monthly, advisory-only NSE momentum
-// rotation lane (docs/specs/20-nse-momentum-rotator.md). It never places
-// orders; it ranks, diffs against a user-maintained portfolio, and reports
-// via Telegram. Deliberately self-contained: it does not touch the OANDA
-// trading config or hot path.
+// rotation lane. It never places orders; it ranks, diffs against a
+// user-maintained portfolio, and reports via Telegram. Deliberately
+// self-contained: it does not touch the OANDA trading config or hot path.
+//
+// READ FIRST: docs/specs/20-nse-momentum-rotator.md § THE STRATEGY IN FULL —
+// the complete rule set, why the regime filter ships OFF, and the backtest
+// numbers behind each parameter. In one line: enter the top 10 by 6-month
+// momentum, hold anything still in the top 30 on either the 6m or the 12m
+// list, stay invested through downtrends.
 package nserotator
 
 import (
@@ -43,6 +48,13 @@ type Config struct {
 		// ExitRankN is the exit rank buffer; must be >= TopK. Defaults to
 		// 3*TopK. Setting it equal to TopK restores plain top-K rotation.
 		ExitRankN int `yaml:"exit_rank_n"`
+		// RegimeFilter gates the whole book to cash while ^NSEI trades below
+		// its EMA(RegimeEMADays). Pointer so an absent key still means ON — a
+		// plain bool would silently disable the filter for every existing
+		// config. false = stay invested through downtrends; the EMA is still
+		// fetched and reported, it just no longer drives the target.
+		// See docs/specs/20-nse-momentum-rotator.md for the trade-off.
+		RegimeFilter *bool `yaml:"regime_filter"`
 	} `yaml:"nserotator"`
 
 	Telegram struct {
@@ -92,6 +104,10 @@ func (c *Config) validate() error {
 	}
 	if r.ExitRankN < r.TopK {
 		return fmt.Errorf("nserotator config: exit_rank_n (%d) must be >= top_k (%d)", r.ExitRankN, r.TopK)
+	}
+	if r.RegimeFilter == nil {
+		on := true // absent key = filter ON (pre-existing behaviour)
+		r.RegimeFilter = &on
 	}
 	if r.YahooTimeoutS <= 0 {
 		r.YahooTimeoutS = 30
