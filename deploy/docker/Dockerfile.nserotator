@@ -1,5 +1,5 @@
 # Cloud Run image for the NSE momentum rotator (spec 20).
-# Cloud Scheduler (weekdays 18:00 IST) → HTTP /run → last-trading-day gate →
+# Cloud Scheduler (weekdays 15:30 Australia/Sydney) → HTTP /run → last-trading-day gate →
 # Yahoo → rank/diff → Telegram → GCS. Advisory-only; no broker connectivity.
 FROM golang:1.25-alpine AS build
 WORKDIR /src

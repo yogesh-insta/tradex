@@ -10,6 +10,9 @@ type DiffResult struct {
 	Sells []Order
 	Buys  []Order
 	Holds []string
+	// Frozen are held-but-untradeable symbols, reported so the position stays
+	// visible but deliberately absent from Sells, Buys and Holds.
+	Frozen []string
 }
 
 // BuildOrders diffs target picks against current holdings (spec 20 §Algorithm):
@@ -17,10 +20,11 @@ type DiffResult struct {
 //     is empty ⇒ everything held becomes a SELL.
 //   - BUY: target symbol not held; qty = floor(capital/topK/lastClose).
 //   - HOLD: in both — never resized (no-rebalance decision).
+//   - FROZEN: held and in frozen — reported, never traded either way.
 //
 // lastClose must contain prices for all target symbols; SELLs of symbols with
 // no known price get ApproxValue 0 (still listed — user knows their position).
-func BuildOrders(holdings []Holding, target []string, lastClose map[string]float64, capitalINR float64, topK int) DiffResult {
+func BuildOrders(holdings []Holding, target []string, lastClose map[string]float64, capitalINR float64, topK int, frozen map[string]bool) DiffResult {
 	inTarget := map[string]bool{}
 	for _, t := range target {
 		inTarget[t] = true
@@ -32,6 +36,10 @@ func BuildOrders(holdings []Holding, target []string, lastClose map[string]float
 
 	var res DiffResult
 	for _, h := range holdings {
+		if frozen[h.Symbol] {
+			res.Frozen = append(res.Frozen, h.Symbol)
+			continue
+		}
 		if inTarget[h.Symbol] {
 			res.Holds = append(res.Holds, h.Symbol)
 			continue
@@ -56,6 +64,10 @@ func BuildOrders(holdings []Holding, target []string, lastClose map[string]float
 		if _, ok := held[t]; ok {
 			continue
 		}
+		if frozen[t] {
+			continue // unreachable via Run (frozen names leave the rankings), but
+			// BuildOrders is called directly in tests and must not emit a buy.
+		}
 		px := lastClose[t]
 		if px <= 0 {
 			continue // no price, no buy — flagged upstream as excluded
@@ -75,6 +87,7 @@ func BuildOrders(holdings []Holding, target []string, lastClose map[string]float
 	sort.Slice(res.Sells, func(i, j int) bool { return res.Sells[i].Symbol < res.Sells[j].Symbol })
 	sort.Slice(res.Buys, func(i, j int) bool { return res.Buys[i].Symbol < res.Buys[j].Symbol })
 	sort.Strings(res.Holds)
+	sort.Strings(res.Frozen)
 	return res
 }
 

@@ -16,11 +16,11 @@ import (
 
 // Deps wires external backends. All are required except StatusURI may be empty.
 type Deps struct {
-	Accounts AccountReader
-	Objects  ObjectFetcher
-	Ledger   LedgerQuerier
+	Accounts  AccountReader
+	Objects   ObjectFetcher
+	Ledger    LedgerQuerier
 	NSEQuoter NSEQuoter // optional; enriches NSE portfolio with live marks
-	Log      *slog.Logger
+	Log       *slog.Logger
 
 	CalendarURI string
 	StatusURI   string // optional
