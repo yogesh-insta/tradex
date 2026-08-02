@@ -2,7 +2,7 @@
 // (docs/specs/20-nse-momentum-rotator.md). Advisory-only: it never places
 // orders; output is a Telegram message + durable GCS record.
 //
-// Modes (mirrors cmd/calendarpoller):
+// Modes:
 //
 //	one-shot (default): go run ./cmd/nserotator -config config/config.nserotator.cloudrun.yaml
 //	HTTP (Cloud Run):   PORT=8080 → POST/GET /run (add ?force=1 to skip the date gate)
