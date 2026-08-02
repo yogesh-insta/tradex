@@ -34,13 +34,25 @@ type Deps struct {
 
 // RunParams carries the resolved config into Run.
 type RunParams struct {
-	Universe       []string
-	LookbackMonths int
-	TopK           int
-	RegimeEMADays  int
-	Market         string
-	Force          bool
-	DriftCheck     bool
+	Universe        []string
+	LookbackMonths  int
+	TopK            int
+	RegimeEMADays   int
+	Market          string
+	Force           bool
+	DriftCheck      bool
+	ExcludedSymbols []string
+	// FrozenSymbols are held but untradeable: no orders either way, no slot
+	// consumed, no stale-price warning. See Config.FrozenSymbols.
+	FrozenSymbols []string
+	// ExitLookbackMonths / ExitRankN drive the exit hysteresis: a holding is
+	// sold only when outside the top ExitRankN on BOTH lookbacks. See
+	// BuildTarget. Zero values fall back to plain top-K rotation.
+	ExitLookbackMonths int
+	ExitRankN          int
+	// RegimeFilter gates the book to cash below the index EMA. When false the
+	// regime is still computed and reported but never empties the target.
+	RegimeFilter bool
 }
 
 const (
@@ -155,6 +167,7 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 	// 4. Eligibility + momentum scores.
 	var excluded []string
 	scores := map[string]float64{}
+	scoresSlow := map[string]float64{} // exit lookback (12m) — keeps holdings alive
 	lastClose := map[string]float64{}
 	for sym, s := range series {
 		lastClose[sym] = s.Candles[len(s.Candles)-1].Close
@@ -169,7 +182,9 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 			excluded = append(excluded, sym+" (stale data)")
 			continue
 		}
-		jumpWindow := BadJumpWindowDays(p.LookbackMonths)
+		// The screen must reach back over the longer of the two lookbacks, or
+		// stale data a year old could keep a holding alive via the slow list.
+		jumpWindow := BadJumpWindowDays(max(p.LookbackMonths, p.ExitLookbackMonths))
 		if BadJumpUp(s, jumpWindow, badJumpMaxMove) {
 			excluded = append(excluded, sym+" (>50% daily up-move — bad data?)")
 			continue
@@ -177,14 +192,44 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 		if LargeDownJump(s, jumpWindow, badJumpMaxMove) {
 			warnings = append(warnings, fmt.Sprintf("%s: >50%% daily down-move (likely corporate action) — still ranked", sym))
 		}
-		m, ok := MomentumReturn(MonthEnds(s), p.LookbackMonths)
+		me := MonthEnds(s)
+		m, ok := MomentumReturn(me, p.LookbackMonths)
 		if !ok {
 			continue // insufficient history — silent, expected for recent listings
 		}
 		scores[sym] = m
+		if p.ExitLookbackMonths > 0 {
+			// Absent is fine: a recent listing simply never joins the slow list.
+			if mSlow, ok := MomentumReturn(me, p.ExitLookbackMonths); ok {
+				scoresSlow[sym] = mSlow
+			}
+		}
+	}
+	for _, sym := range p.ExcludedSymbols {
+		excluded = append(excluded, filterPolicyExcluded(scores, sym)...)
+		// Must also drop from the slow list, or a blocked name would be kept
+		// alive by it — the exact opposite of what the blocklist is for.
+		filterPolicyExcluded(scoresSlow, sym)
+	}
+	// Frozen names leave the rankings too, so they are never bought and never
+	// occupy a slot. Unlike the blocklist they are also withheld from
+	// BuildOrders below, so they produce no SELL either.
+	frozen := make(map[string]bool, len(p.FrozenSymbols))
+	for _, sym := range p.FrozenSymbols {
+		sym = strings.ToUpper(strings.TrimSpace(sym))
+		if sym == "" {
+			continue
+		}
+		frozen[sym] = true
+		filterPolicyExcluded(scores, sym)
+		filterPolicyExcluded(scoresSlow, sym)
 	}
 	// Held symbols with stale data are a loud warning (corporate action?).
+	// Frozen names are stale by definition — that is why they are frozen.
 	for _, h := range pf.Holdings {
+		if frozen[h.Symbol] {
+			continue
+		}
 		s, ok := series[h.Symbol]
 		if !ok || Stale(s, now, staleAfter) {
 			warnings = append(warnings, fmt.Sprintf("HELD %s: no fresh price data — possible rename/corporate action", h.Symbol))
@@ -192,18 +237,22 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 	}
 
 	ranked := Rank(scores)
+	rankedSlow := Rank(scoresSlow)
+	slowIdx := RankIndex(rankedSlow)
 
-	// 5. Target picks (empty in cash regime).
+	// 5. Target picks. Entry on the fast list, exit only when outside the
+	// buffer on BOTH lists — see BuildTarget. With RegimeFilter on, a below-EMA
+	// index leaves the target empty and BuildOrders sells the whole book.
 	var target []string
-	if invested {
-		for i := 0; i < len(ranked) && i < p.TopK; i++ {
-			target = append(target, ranked[i].Symbol)
-		}
+	if ShouldHoldEquity(invested, p.RegimeFilter) {
+		target = BuildTarget(ranked, rankedSlow, pf.Holdings, p.TopK, p.ExitRankN)
 	}
-	diff := BuildOrders(pf.Holdings, target, lastClose, pf.TotalCapitalINR, p.TopK)
+	diff := BuildOrders(pf.Holdings, target, lastClose, pf.TotalCapitalINR, p.TopK, frozen)
 
 	// Company name, live price, and market cap for top-ranked list and orders (best-effort).
-	topDisplay := head(ranked, topRankedDisplayCount)
+	// The displayed list must reach the exit buffer, or a holding kept alive at
+	// rank 25 would never appear and the hold could not be explained.
+	topDisplay := head(ranked, max(topRankedDisplayCount, p.ExitRankN))
 	quoteSymbols := symbolsForQuotes(topDisplay, diff)
 	quotes := d.Yahoo.FetchQuoteDetails(ctx, quoteSymbols)
 	companyNames := fetchNSECompanyNames(ctx, d)
@@ -222,6 +271,8 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 		q := quotes[r.Symbol]
 		r.CompanyName = resolveName(r.Symbol)
 		r.MarketCap = q.MarketCap
+		r.MomentumSlow = scoresSlow[r.Symbol] // zero when unranked on the slow list
+		r.RankSlow = slowIdx[r.Symbol]
 		if q.Price > 0 {
 			r.LastClose = q.Price
 		} else if p, ok := lastClose[r.Symbol]; ok {
@@ -301,17 +352,31 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 	}
 
 	// 8. Compose, deliver, persist.
+	fastIdx := RankIndex(ranked)
+	holdsInfo := make([]HoldInfo, 0, len(diff.Holds))
+	for _, h := range diff.Holds {
+		holdsInfo = append(holdsInfo, HoldInfo{Symbol: h, Rank: fastIdx[h], RankSlow: slowIdx[h]})
+	}
 	rec := Recommendation{
 		RunAt:          now.UTC().Format(time.RFC3339),
 		Month:          month,
 		RegimeInvested: invested,
+		RegimeFilter:   &p.RegimeFilter,
 		NiftyClose:     niftyClose,
 		NiftyEMA:       niftyEMA,
 		Orders:         append(append([]Order{}, diff.Sells...), diff.Buys...),
 		Holds:          diff.Holds,
-		TopRanked:      head(ranked, topRankedDisplayCount),
-		Excluded:       excluded,
-		Warnings:       warnings,
+		HoldsInfo:      holdsInfo,
+		Frozen:         diff.Frozen,
+		TopRanked:      topDisplay, // already enriched in place
+		Params: RunParamsRecord{
+			LookbackMonths:     p.LookbackMonths,
+			ExitLookbackMonths: p.ExitLookbackMonths,
+			TopK:               p.TopK,
+			ExitRankN:          p.ExitRankN,
+		},
+		Excluded: excluded,
+		Warnings: warnings,
 	}
 	rec.MessageText = FormatMessage(rec, p.LookbackMonths, p.RegimeEMADays)
 
@@ -385,6 +450,18 @@ func fetchAll(ctx context.Context, y *YahooClient, symbols []string) (map[string
 	}
 	wg.Wait()
 	return out, errs
+}
+
+func filterPolicyExcluded(scores map[string]float64, sym string) []string {
+	sym = strings.ToUpper(strings.TrimSpace(sym))
+	if sym == "" {
+		return nil
+	}
+	if _, ok := scores[sym]; !ok {
+		return nil
+	}
+	delete(scores, sym)
+	return []string{sym + " (excluded by policy)"}
 }
 
 func keys(m map[string]bool) []string {

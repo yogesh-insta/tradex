@@ -97,7 +97,7 @@ func enrichPortfolioQuotes(portfolio map[string]any, prices map[string]float64) 
 		value := qty * px
 		h["last_price"] = px
 		h["pct_vs_avg"] = (px - avg) / avg
-		h["unrealized_inr"] = math.Round(value-cost)
+		h["unrealized_inr"] = math.Round(value - cost)
 		totalCost += cost
 		totalValue += value
 		priced++

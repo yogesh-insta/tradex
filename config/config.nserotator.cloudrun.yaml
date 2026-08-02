@@ -4,8 +4,29 @@ env: prod
 
 nserotator:
   lookback_months: 6
-  top_k: 8
+  top_k: 10
+  # Exit hysteresis: sell only when outside the top exit_rank_n on BOTH
+  # the 6m and 12m lists. exit_rank_n == top_k restores plain rotation.
+  exit_lookback_months: 12
+  exit_rank_n: 30
   regime_ema_days: 200
+  # Regime filter OFF: stay invested through downtrends. Backtest 2011-01 to
+  # 2026-06 on this exact config — filter ON 36.1% CAGR / -23.2% max DD / 119x,
+  # filter OFF 49.4% CAGR / -26.8% max DD / 503x. The filter costs ~13 points of
+  # CAGR and more than doubles the exit hysteresis' turnover (8.5% -> 19.2% per
+  # month) because a forced liquidation overrides every hold decision.
+  #
+  # It buys only 3.6 points of drawdown for those 13 points of CAGR, which is a
+  # far worse exchange rate than a 15% per-name stop (-4 CAGR for -5.2 DD) — so
+  # the filter is not the tool to reach for if drawdown becomes the concern.
+  # Deliberately trading a slightly deeper drawdown for ~4x terminal wealth;
+  # flip to true to restore the gate.
+  #
+  # NOTE: an earlier version of this comment claimed -13.3% max DD with the
+  # filter ON. That was wrong by ~10 points and made the filter look like
+  # drawdown insurance it never provided. Re-measured 2026-08-02.
+  # See docs/specs/20-nse-momentum-rotator.md § Regime filter.
+  regime_filter: false
   universe_file: config/universe-nse200.yaml
   holidays_file: config/holidays-nse.yaml
   market: XNSE
@@ -14,6 +35,17 @@ nserotator:
   gcs_prefix: gs://tradex-demo-state/nserotator
   yahoo_timeout_s: 30
   drift_check: true
+  excluded_symbols:
+    - ADANIENSOL
+    - ADANIENT
+    - ADANIGREEN
+    - ADANIPORTS
+    - ADANIPOWER
+  # Held but untradeable — no orders either way, no slot consumed, no stale
+  # warning. Do NOT move these to excluded_symbols: that advises a SELL every
+  # month for a position that cannot be exited.
+  frozen_symbols:
+    - ALCODIS
 
 telegram:
   bot_token: ${TELEGRAM_BOT_TOKEN}

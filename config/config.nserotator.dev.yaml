@@ -4,14 +4,29 @@ env: dev
 
 nserotator:
   lookback_months: 6
-  top_k: 8
+  top_k: 10
+  # Exit hysteresis: sell only when outside the top exit_rank_n on BOTH
+  # the 6m and 12m lists. exit_rank_n == top_k restores plain rotation.
+  exit_lookback_months: 12
+  exit_rank_n: 30
   regime_ema_days: 200
+  # Must mirror the Cloud Run config, or dev runs advise a different portfolio.
+  regime_filter: false
   universe_file: config/universe-nse200.yaml
   holidays_file: config/holidays-nse.yaml
   market: XNSE
   local_state_dir: data/nserotator
   yahoo_timeout_s: 30
   drift_check: false
+  excluded_symbols:
+    - ADANIENSOL
+    - ADANIENT
+    - ADANIGREEN
+    - ADANIPORTS
+    - ADANIPOWER
+  # Must mirror the Cloud Run config — see frozen_symbols there.
+  frozen_symbols:
+    - ALCODIS
 
 telegram:
   bot_token: ${TELEGRAM_BOT_TOKEN}
