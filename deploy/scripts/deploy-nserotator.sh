@@ -111,14 +111,15 @@ gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
   --role="roles/storage.objectAdmin" \
   --project="${PROJECT}" >/dev/null || true
 
-# Weekdays 18:00 IST = 12:30 UTC. The in-process gate picks the actual
-# last trading day; other days exit fast with {"skipped":true}.
-SCHEDULE='30 12 * * 1-5'
+# Weekdays 15:30 Australia/Sydney. The in-process gate (IST/NSE calendar) picks
+# the actual last trading day; other days exit fast with {"skipped":true}.
+SCHEDULE='30 15 * * 1-5'
+SCHEDULER_TZ='Australia/Sydney'
 if gcloud scheduler jobs describe "${SCHEDULER_JOB}" --location="${REGION}" --project="${PROJECT}" >/dev/null 2>&1; then
   gcloud scheduler jobs update http "${SCHEDULER_JOB}" \
     --location="${REGION}" --project="${PROJECT}" \
     --schedule="${SCHEDULE}" \
-    --time-zone='UTC' \
+    --time-zone="${SCHEDULER_TZ}" \
     --uri="${URL}/run" \
     --http-method=POST \
     --attempt-deadline=540s \
@@ -128,7 +129,7 @@ else
   gcloud scheduler jobs create http "${SCHEDULER_JOB}" \
     --location="${REGION}" --project="${PROJECT}" \
     --schedule="${SCHEDULE}" \
-    --time-zone='UTC' \
+    --time-zone="${SCHEDULER_TZ}" \
     --uri="${URL}/run" \
     --http-method=POST \
     --attempt-deadline=540s \
@@ -138,7 +139,7 @@ fi
 
 echo "==> nserotator deploy complete"
 echo "    URL=${URL}"
-echo "    schedule=${SCHEDULE} UTC (18:00 IST weekdays; gate picks month-end)"
+echo "    schedule=${SCHEDULE} ${SCHEDULER_TZ} (15:30 Sydney weekdays; gate picks month-end)"
 echo "    state=${GCS_PREFIX}/  (portfolio.json is YOURS to maintain)"
 echo ""
 echo "Manual test run (skips date gate, sends a REAL Telegram message):"

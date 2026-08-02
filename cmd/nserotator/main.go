@@ -116,13 +116,18 @@ func runOnce(ctx context.Context, cfg *nserotator.Config, log *slog.Logger, forc
 		Now:      time.Now,
 	}
 	params := nserotator.RunParams{
-		Universe:       universe,
-		LookbackMonths: cfg.Rotator.LookbackMonths,
-		TopK:           cfg.Rotator.TopK,
-		RegimeEMADays:  cfg.Rotator.RegimeEMADays,
-		Market:         cfg.Rotator.Market,
-		Force:          force,
-		DriftCheck:     cfg.Rotator.DriftCheck,
+		Universe:           universe,
+		LookbackMonths:     cfg.Rotator.LookbackMonths,
+		TopK:               cfg.Rotator.TopK,
+		RegimeEMADays:      cfg.Rotator.RegimeEMADays,
+		Market:             cfg.Rotator.Market,
+		Force:              force,
+		DriftCheck:         cfg.Rotator.DriftCheck,
+		ExcludedSymbols:    cfg.Rotator.ExcludedSymbols,
+		FrozenSymbols:      cfg.Rotator.FrozenSymbols,
+		ExitLookbackMonths: cfg.Rotator.ExitLookbackMonths,
+		ExitRankN:          cfg.Rotator.ExitRankN,
+		RegimeFilter:       *cfg.Rotator.RegimeFilter, // validate() guarantees non-nil
 	}
 	return nserotator.Run(ctx, params, deps)
 }
