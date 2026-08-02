@@ -4,6 +4,12 @@ Everything is implemented and committed on `feature/nse-momentum-rotator`.
 I could not compile or deploy from my sandbox (no Go toolchain, no gcloud
 auth), so the morning path is: **verify → deploy → test-fire**. ~15 minutes.
 
+> **Superseded 2026-08.** The strategy is now top 10 with 6m/12m exit
+> hysteresis (`exit_rank_n: 30`) and the **regime filter turned off**, so the
+> "CASH regime" behaviour described below no longer happens. This runbook is
+> kept as a point-in-time record of the first deploy; for current behaviour
+> read `docs/specs/20-nse-momentum-rotator.md` § THE STRATEGY IN FULL.
+
 ## 0. What was built overnight
 
 - `cmd/nserotator` + `internal/nserotator/` — monthly advisory job per spec 20

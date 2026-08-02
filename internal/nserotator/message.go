@@ -9,9 +9,14 @@ import (
 // Plain text (no Markdown parse mode) so symbols like M&M never break parsing.
 func FormatMessage(rec Recommendation, lookbackMonths, emaDays int) string {
 	var b strings.Builder
+	// With the filter off the index reading is advisory only — it must not say
+	// "exit all positions" directly above a list of BUY orders.
 	regime := "CASH — exit all positions"
-	if rec.RegimeInvested {
+	switch {
+	case rec.RegimeInvested:
 		regime = "INVESTED"
+	case rec.RegimeFilter != nil && !*rec.RegimeFilter:
+		regime = "BELOW EMA — staying invested (regime filter off)"
 	}
 	fmt.Fprintf(&b, "NSE ROTATOR — %s\n", rec.Month)
 	fmt.Fprintf(&b, "Regime: %s (Nifty %.0f vs EMA%d %.0f)\n", regime, rec.NiftyClose, emaDays, rec.NiftyEMA)

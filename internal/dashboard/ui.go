@@ -329,7 +329,12 @@ async function refresh() {
       }
     }
     const recLabel = nse.month ? ' (' + nse.month + ')' : '';
-    const regime = nse.regime_invested ? "INVESTED" : "CASH — exit all positions";
+    // regime_filter is absent on records written before the filter became
+    // configurable, when it was always on — undefined must read as true.
+    const regimeFilterOn = nse.regime_filter !== false;
+    const regime = nse.regime_invested ? "INVESTED"
+      : regimeFilterOn ? "CASH — exit all positions"
+      : "BELOW EMA200 — staying invested (regime filter off)";
     html += '<div class="meta">Last recommendation' + esc(recLabel) + ': <strong>' + esc(regime) + '</strong>';
     if (nse.nifty_close != null && nse.nifty_ema200 != null) {
       html += ' · Nifty ' + Number(nse.nifty_close).toFixed(0) + ' vs EMA200 ' + Number(nse.nifty_ema200).toFixed(0);

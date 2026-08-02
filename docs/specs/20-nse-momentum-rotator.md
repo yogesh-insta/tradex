@@ -6,18 +6,91 @@ Status: DRAFT — pending review.
 
 A **monthly, advisory-only** equity rotation lane for NSE (India), separate from
 the OANDA hot path. Once a month it ranks a fixed universe of NSE large caps by
-6-month trailing momentum, applies a market-regime filter, diffs the target portfolio
-against user-maintained holdings, and delivers exact BUY/SELL orders to Telegram.
+6-month trailing momentum, diffs a target portfolio against user-maintained
+holdings, and delivers exact BUY/SELL orders to Telegram.
 **It never places orders.** The user executes manually in Zerodha Kite.
 
-Strategy was validated offline (2010–2026 daily data, see `kite/backtest/`):
-6-month lookback (default; 49.89% CAGR vs 47.66% for 12-month in backtests),
-top 8 equal-weight, regime filter. Earlier 12-month validation showed ~23% CAGR
-gross, max DD −18%, vs Nifty 50 buy-and-hold 9.7%. Expectation setting: with
-survivorship bias, costs, and taxes, realistic outcome is low-to-mid-teens
-CAGR with materially smaller drawdowns than buy-and-hold; edge in the most
-recent 8 years was thin (17.6% vs 17.3% benchmark) — the drawdown reduction
-is the main prize.
+## THE STRATEGY IN FULL
+
+> Read this section before changing anything in `internal/nserotator/`. Every
+> rule below is implemented by one named function; the parameter names are the
+> literal YAML keys in `config/config.nserotator.*.yaml`.
+
+**Universe.** Nifty 200, checked in at `config/universe-nse200.yaml`. Names on
+the `excluded_symbols` policy blocklist are struck from every list before
+ranking. Names with stale data, a >50% single-day up-move (bad feed), or less
+history than the lookback are dropped.
+
+**Rank twice.** Every month-end, score each surviving symbol on two trailing
+returns computed from month-end closes:
+
+| list | key | window | job |
+| --- | --- | --- | --- |
+| fast | `lookback_months: 6` | 6 months | decides what to **buy** |
+| slow | `exit_lookback_months: 12` | 12 months | decides what to **keep** |
+
+**Entry.** Buy the top `top_k: 10` of the fast list. Equal weight; quantity is
+`floor(total_capital_inr / top_k / last_close)`.
+
+**Exit (hysteresis — the core idea).** A holding is sold **only when it sits
+outside the top `exit_rank_n: 30` on BOTH lists.** A name that slips to 6m rank
+14 but is still 12m rank 9 keeps its slot instead of being sold and bought back
+weeks later. Survivors keep their slots; leftover slots are filled from the fast
+list in rank order. Setting `exit_rank_n == top_k` restores plain top-K
+rotation. Implemented by `BuildTarget` (`signal.go`).
+
+> This rule is why the portfolio churns ~9%/month instead of ~40%. It is
+> roughly return-neutral on its own; what it buys is lower turnover and
+> shallower drawdowns.
+
+**Regime filter — currently OFF.** See the dedicated section below. This is the
+single largest lever in the strategy and the one most likely to be revisited.
+
+**No rebalancing of existing positions.** Weights drift; only a slot turnover
+triggers a trade. Reduces churn and taxable events.
+
+### Regime filter
+
+`regime_filter` (bool, **default true**, shipped as **false**) gates the entire
+book to cash while `^NSEI` closes below its `regime_ema_days: 200` EMA. When
+off, the EMA is still fetched and reported — it just no longer drives the
+target. Implemented by `ShouldHoldEquity` (`signal.go`).
+
+Backtest, Nifty 200, 2010-01 → 2026-07 (16.6y), 0.12% round-trip costs, at the
+shipped `top_k: 10` / `exit_rank_n: 30` / blocklist applied:
+
+| | CAGR | max DD | Sharpe | turnover/mo | growth |
+| --- | --- | --- | --- | --- | --- |
+| `regime_filter: true` | 35.6% | −13.3% | 1.69 | 19.2% | 112x |
+| **`regime_filter: false` (shipped)** | **45.6%** | **−28.1%** | **1.68** | **8.6%** | **338x** |
+
+The filter costs ~10 points of CAGR. It also *halves the benefit of the exit
+hysteresis*: a forced liquidation overrides every hold decision, so turnover
+more than doubles (8.6% → 19.2%). Roughly 3x terminal wealth is being traded
+for a max drawdown of −28% instead of −13%.
+
+**Flip it back to `true` if** the drawdown is not survivable in practice — a
+strategy abandoned at the bottom returns 0%, which beats neither variant. This
+is a risk-appetite decision, not an optimisation; do not "tune" it on the same
+16.6 years that chose it.
+
+### Honest expectations
+
+The backtest has survivorship bias (today's Nifty 200 constituents, back-applied),
+models fills at month-end closes, ignores taxes and lot rounding, and measures
+drawdown on **month-end equity only** — intra-month pain is invisible. Live
+runs now execute mid-session (see Scheduling), so signals come off a partial
+candle. Treat the headline CAGR as an upper bound: realistic outcome is a large
+haircut to these numbers, and the turnover reduction is the most transferable
+result. The regime filter's cost is concentrated in a handful of whipsaw
+re-entries, so its true expense has wide error bars.
+
+### Where the numbers come from
+
+`kite/backtest/momentum_dual.py` (`run_dual` = this strategy, `run_plain` =
+the pre-2026 plain-rotation baseline). `internal/nserotator/signal.go` mirrors
+its math function-for-function; `signal_test.go` cross-checks fixtures against
+it. **If you change signal math, change both and re-run the backtest.**
 
 ## Non-goals (v1)
 
@@ -51,8 +124,13 @@ GCS helpers, slog JSON logging.
 
 ## Scheduling
 
-- **Cloud Scheduler** fires the Cloud Run job **every trading-candidate day at
-  18:00 IST (12:30 UTC)**, cron `30 12 * * 1-5`.
+- **Cloud Scheduler** fires the Cloud Run job **weekdays at 15:30
+  Australia/Sydney**, cron `30 15 * * 1-5` in `Australia/Sydney`.
+  > That resolves to 10:00 IST (AEDT) / 11:00 IST (AEST) — **during** the NSE
+  > session (09:15–15:30 IST), not after the close. Momentum, the EMA200
+  > reading, and `floor(capital/top_k/price)` quantities are therefore computed
+  > from that day's partial candle. Accepted deliberately for delivery timing;
+  > the backtest assumes month-end closes and does not model this.
 - First step of the run: **last-trading-day gate** — compute whether *today* is
   the last NSE trading day of the calendar month using the checked-in NSE
   holiday file (`config/holidays-nse.yaml`, same pattern as `config/holidays.yaml`).
@@ -63,33 +141,40 @@ GCS helpers, slog JSON logging.
 
 ## Algorithm (normative)
 
-Parameters (config, defaults shown): `lookback_months: 6`, `top_k: 8`,
-`regime_ema_days: 200`, `cost_note_pct: 0.12`.
+Parameters as shipped: `lookback_months: 6`, `exit_lookback_months: 12`,
+`top_k: 10`, `exit_rank_n: 30`, `regime_ema_days: 200`, `regime_filter: false`,
+`excluded_symbols: [ADANIENSOL, ADANIENT, ADANIGREEN, ADANIPORTS, ADANIPOWER]`.
 
-> `top_k: 8` (not 5): on the Nifty 200 universe the 200-run validation showed
-> top-8 cuts max drawdown to ~-25% (vs ~-32% for top-5) with comparable returns
-> — midcaps need the extra diversification.
+> `top_k: 10` (not 5): on the Nifty 200 universe, larger books cut max drawdown
+> materially with comparable returns — midcaps need the diversification.
+> `exit_rank_n: 3 × top_k` won on CAGR, drawdown, Sharpe and turnover at every
+> book size tested.
 
 1. **Fetch** ~5 years of daily closes for: Nifty 50 index (`^NSEI`) and every
    universe symbol (`<SYMBOL>.NS`) from the Yahoo Finance chart API
    (`https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5y&interval=1d`).
    No API key. Retries with backoff; ≥3 consecutive failures for a symbol →
    symbol is excluded from ranking and flagged in the Telegram message.
-2. **Regime**: invested iff last close of `^NSEI` > EMA(200) of its daily closes.
-   If not invested → target portfolio = 100% cash (SELL everything held).
-3. **Rank**: for each universe symbol with ≥ `lookback_months` of history,
-   momentum = `close_today / close_{lookback_months}_ago − 1`. Sort descending. Target =
-   top `top_k`, equal weight of `portfolio.total_capital_inr`.
-4. **Diff** against holdings from `portfolio.json`:
+2. **Regime**: invested iff last close of `^NSEI` > EMA(`regime_ema_days`) of
+   its daily closes. Gates the book to 100% cash **only when `regime_filter` is
+   true**; otherwise recorded and reported but not acted on (`ShouldHoldEquity`).
+3. **Rank twice**: for each surviving symbol, momentum from month-end closes over
+   `lookback_months` (fast) and `exit_lookback_months` (slow). Sort each descending.
+   `excluded_symbols` are struck from **both** lists, so the blocklist cannot be
+   defeated by the exit rule.
+4. **Target** (`BuildTarget`): keep every holding inside the top `exit_rank_n`
+   on either list; fill remaining slots from the top `top_k` of the fast list.
+   Equal weight of `portfolio.total_capital_inr`; never more than `top_k` names.
+5. **Diff** against holdings from `portfolio.json`:
    - SELL: held symbol not in target (or regime = cash). Quantity: full holding.
    - BUY: target symbol not held. Quantity: `floor(capital / top_k / last_close)`.
    - HOLD: in both; no rebalancing of existing position sizes in v1 (reduces
      churn and tax events; full-weight rebalance only when a slot turns over).
-5. **Deliver + persist** (see below). The job is stateless; everything it needs
+6. **Deliver + persist** (see below). The job is stateless; everything it needs
    is fetched or read from GCS at run time.
 
 All signal math must be pure functions with table-driven unit tests mirroring
-`kite/backtest/momentum.py` outputs on fixture data.
+`kite/backtest/momentum_dual.py` outputs on fixture data.
 
 ## Inputs
 
@@ -177,7 +262,7 @@ Secrets only as `${ENV}` references; fail-fast validation at boot (repo standard
 - `Dockerfile.nserotator` (distroless, same base pattern as calendar poller).
 - Cloud Run **Job** (not service — no HTTP surface), region `asia-south1`
   (Mumbai) for locality; any region works since it's advisory.
-- Cloud Scheduler `30 12 * * 1-5` UTC → executes the job.
+- Cloud Scheduler `30 15 * * 1-5` in `Australia/Sydney` → executes the job.
 - Service account: `roles/storage.objectAdmin` on the `nserotator/` prefix only.
   No OANDA, no Kite, no other permissions.
 - CI: standard vet/lint/test in existing `ci.yml` (new packages picked up
@@ -204,8 +289,10 @@ Secrets only as `${ENV}` references; fail-fast validation at boot (repo standard
 ## Pre-implementation gate — PASSED (2026-07-20)
 
 Re-run on the Nifty 200 universe (2010–2026, both halves tested): strategy beat
-its equal-weight benchmark by ~20%/yr in each half; top-8 chosen over top-5 for
-drawdown control (−25% vs −32%). **Absolute CAGR figures (~40%) are inflated by
+its equal-weight benchmark by ~20%/yr in each half; a larger book was chosen
+over top-5 for drawdown control (−25% vs −32%). Superseded in 2026-08 by
+`top_k: 10` + exit hysteresis + `regime_filter: false` — see § THE STRATEGY IN
+FULL for the current parameters. **Absolute CAGR figures (~40%) are inflated by
 severe survivorship bias** (today's constituents include stocks that grew into
 the index); written expectation remains **15–20% CAGR** with DDs in the −20…−30%
 range. The bias affects the backtest only — trading today's list forward has no

@@ -10,6 +10,8 @@ nserotator:
   exit_lookback_months: 12
   exit_rank_n: 30
   regime_ema_days: 200
+  # Must mirror the Cloud Run config, or dev runs advise a different portfolio.
+  regime_filter: false
   universe_file: config/universe-nse200.yaml
   holidays_file: config/holidays-nse.yaml
   market: XNSE
