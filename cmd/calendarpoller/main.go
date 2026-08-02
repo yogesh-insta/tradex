@@ -3,7 +3,7 @@
 //
 // Modes:
 //
-//	one-shot (default): go run ./cmd/calendarpoller -config config/config.dev.yaml
+//	one-shot (default): go run ./cmd/calendarpoller -config config/config.calendarpoller.cloudrun.yaml
 //	HTTP (Cloud Run):   LISTEN_ADDR=:8080 or PORT=8080 → POST/GET /run
 //
 // Required env: FINNHUB_API_KEY, GEMINI_API_KEY, TELEGRAM_* (when review on).
@@ -38,7 +38,7 @@ func main() {
 
 func run() error {
 	var configPath string
-	flag.StringVar(&configPath, "config", "config/config.dev.yaml", "path to environment config YAML")
+	flag.StringVar(&configPath, "config", "config/config.calendarpoller.cloudrun.yaml", "path to environment config YAML")
 	flag.Parse()
 
 	cfg, err := config.Load(configPath, config.EnvResolver{})
