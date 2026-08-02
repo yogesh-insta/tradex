@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Pure signal math. Mirrors kite/backtest/momentum.py:
+// Pure signal math. Mirrors kite/backtest/momentum_dual.py:
 //   - month-end resample of daily closes
 //   - momentum = monthEnd[last] / monthEnd[last-lookback] - 1
 //   - regime   = last daily close of ^NSEI > EMA(regimeEMADays) of daily closes
@@ -72,6 +72,15 @@ func RegimeInvested(index Series, emaDays int) (invested bool, lastClose, ema fl
 	return lastClose > ema, lastClose, ema, true
 }
 
+// ShouldHoldEquity reports whether a run builds a target portfolio at all.
+// With regimeFilter off the index reading is advisory: the book stays invested
+// through downtrends. With it on, a below-EMA index forces 100% cash and
+// BuildOrders sells everything. See docs/specs/20 § Regime filter for why the
+// shipped config turns it off.
+func ShouldHoldEquity(regimeInvested, regimeFilter bool) bool {
+	return regimeInvested || !regimeFilter
+}
+
 // Stale reports whether the series' latest candle is older than maxAge
 // relative to now (catches renames/delistings/suspensions).
 func Stale(s Series, now time.Time, maxAge time.Duration) bool {
@@ -134,6 +143,10 @@ type Ranked struct {
 	LastClose   float64 `json:"last_close,omitempty"`
 	Momentum    float64 `json:"momentum"`
 	MarketCap   float64 `json:"market_cap_inr,omitempty"` // Yahoo summary; INR for .NS
+	// MomentumSlow/RankSlow place the same symbol on the exit lookback list.
+	// RankSlow is 1-based; 0 means unranked there (insufficient history).
+	MomentumSlow float64 `json:"momentum_slow,omitempty"`
+	RankSlow     int     `json:"rank_slow,omitempty"`
 }
 
 // Rank sorts eligible symbols by momentum descending; deterministic
@@ -149,5 +162,121 @@ func Rank(scores map[string]float64) []Ranked {
 		}
 		return out[i].Symbol < out[j].Symbol
 	})
+	return out
+}
+
+// RankIndex maps symbol -> 1-based position in a ranked list.
+func RankIndex(ranked []Ranked) map[string]int {
+	idx := make(map[string]int, len(ranked))
+	for i, r := range ranked {
+		idx[r.Symbol] = i + 1
+	}
+	return idx
+}
+
+// BuildTarget applies entry/exit hysteresis (kite/backtest/momentum_dual.py):
+//
+//	ENTRY — the top topK of ranked (fast, e.g. 6m)
+//	EXIT  — a holding is dropped only when it is outside the top exitN on BOTH
+//	        ranked and rankedSlow (e.g. 12m)
+//
+// Survivors keep their existing order and their slots; remaining slots are
+// filled from the fast list in rank order. The result never exceeds topK.
+// exitN == topK reproduces plain top-K rotation.
+//
+// A holding absent from both lists — policy-excluded, stale, delisted, or
+// never scored — is not in the keep set and is therefore sold.
+//
+// More survivors than topK is a seeded-book state the backtest never reaches
+// (starting empty, |held| <= topK is preserved every month), so it only shows
+// up live: a portfolio.json carrying more names than the strategy sizes for.
+// The overflow is cut by weakest rank, never by position in the file — cutting
+// by file order sold a rank-5 name to keep a rank-149 one on the 2026-08 run.
+func BuildTarget(ranked, rankedSlow []Ranked, holdings []Holding, topK, exitN int) []string {
+	if topK <= 0 {
+		return nil
+	}
+	if exitN < topK {
+		exitN = topK
+	}
+	keep := make(map[string]bool, 2*exitN)
+	for i, r := range ranked {
+		if i >= exitN {
+			break
+		}
+		keep[r.Symbol] = true
+	}
+	for i, r := range rankedSlow {
+		if i >= exitN {
+			break
+		}
+		keep[r.Symbol] = true
+	}
+
+	survivors := make([]string, 0, len(holdings))
+	seen := make(map[string]bool, len(holdings))
+	for _, h := range holdings {
+		if keep[h.Symbol] && !seen[h.Symbol] {
+			survivors = append(survivors, h.Symbol)
+			seen[h.Symbol] = true
+		}
+	}
+	if len(survivors) > topK {
+		survivors = cutWeakest(survivors, ranked, rankedSlow, topK)
+	}
+
+	target := make([]string, 0, topK)
+	inTarget := make(map[string]bool, topK)
+	for _, s := range survivors {
+		target = append(target, s)
+		inTarget[s] = true
+	}
+	for i, r := range ranked {
+		if i >= topK || len(target) == topK {
+			break
+		}
+		if !inTarget[r.Symbol] {
+			target = append(target, r.Symbol)
+			inTarget[r.Symbol] = true
+		}
+	}
+	return target
+}
+
+// cutWeakest keeps the topK strongest of survivors and drops the rest. Strength
+// is a symbol's best (lowest) position across the two lists, so a name held by
+// either lookback is judged on whichever ranks it higher — the same asymmetry
+// the keep set uses. Survivors retain their input order; only membership is
+// decided here. Ties break on symbol for determinism.
+func cutWeakest(survivors []string, ranked, rankedSlow []Ranked, topK int) []string {
+	fast, slow := RankIndex(ranked), RankIndex(rankedSlow)
+	best := func(sym string) int {
+		r := 1 << 30
+		if i, ok := fast[sym]; ok && i < r {
+			r = i
+		}
+		if i, ok := slow[sym]; ok && i < r {
+			r = i
+		}
+		return r
+	}
+	byRank := append([]string(nil), survivors...)
+	sort.Slice(byRank, func(i, j int) bool {
+		ri, rj := best(byRank[i]), best(byRank[j])
+		if ri != rj {
+			return ri < rj
+		}
+		return byRank[i] < byRank[j]
+	})
+	kept := make(map[string]bool, topK)
+	for _, s := range byRank[:topK] {
+		kept[s] = true
+	}
+	out := survivors[:0:0]
+	for _, s := range survivors {
+		if kept[s] {
+			out = append(out, s)
+		}
+	}
 	return out
 }

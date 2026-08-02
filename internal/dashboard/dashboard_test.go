@@ -411,3 +411,36 @@ func TestLatestNSEReportIncludesPortfolio(t *testing.T) {
 		t.Fatalf("holdings: %#v", pfOut["holdings"])
 	}
 }
+
+// ETF and NSE live on their own paths so neither page renders the other's
+// tables. All three serve the same document; the client picks the lane from
+// location.pathname. Auth must still apply — /nse is not a bypass.
+func TestUILanesServeAndStayProtected(t *testing.T) {
+	svc := testService(t, nil, []byte(`{"as_of":"2026-07-19T11:00:00Z","events":[]}`), nil)
+	srv := NewServer(svc, BearerAuth{Token: "secret"}, nil)
+	h := srv.Handler()
+
+	for _, path := range []string{"/", "/etf", "/nse"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200", path, rr.Code)
+		}
+		for _, want := range []string{`id="sec-etf"`, `id="sec-nse"`, `id="lanes"`} {
+			if !strings.Contains(rr.Body.String(), want) {
+				t.Errorf("GET %s: body missing %s", path, want)
+			}
+		}
+	}
+
+	// Unauthenticated lane requests must be rejected like any other page.
+	for _, path := range []string{"/etf", "/nse"} {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
+		if rr.Code != http.StatusUnauthorized && rr.Code != http.StatusForbidden {
+			t.Errorf("GET %s without token = %d, want 401/403", path, rr.Code)
+		}
+	}
+}

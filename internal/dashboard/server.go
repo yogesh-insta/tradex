@@ -35,6 +35,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/etf", s.protect(s.handleETF))
 	mux.HandleFunc("GET /api/nse", s.protect(s.handleNSE))
 	mux.HandleFunc("GET /api/ui-config", s.protect(s.handleUIConfig))
+	// One document, three paths: the page reads location.pathname and renders
+	// only that lane, so ETF and NSE are no longer stacked on one screen.
+	mux.HandleFunc("GET /etf", s.protect(s.handleUI))
+	mux.HandleFunc("GET /nse", s.protect(s.handleUI))
 	mux.HandleFunc("GET /", s.protect(s.handleUI))
 	return mux
 }

@@ -46,6 +46,17 @@ const uiHTML = `<!DOCTYPE html>
     font-size: 13px; line-height: 1.4;
   }
   .banner.show { display: block; }
+  nav.lanes { display: flex; gap: 6px; flex: 0 0 auto; }
+  nav.lanes a {
+    color: var(--muted); text-decoration: none; font-family: var(--mono);
+    font-size: 12px; padding: 5px 11px; border: 1px solid var(--border);
+    border-radius: 999px; white-space: nowrap; line-height: 1.2;
+  }
+  nav.lanes a:hover { color: var(--text); border-color: var(--muted); }
+  nav.lanes a.on {
+    color: var(--bg); background: var(--accent); border-color: var(--accent);
+    font-weight: 600;
+  }
   .grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
   @media (min-width: 960px) {
     body { padding: 16px 20px 40px; }
@@ -77,6 +88,21 @@ const uiHTML = `<!DOCTYPE html>
   .pill.red { background: #3a1818; color: var(--red); }
   .pill.unknown { background: #243044; color: var(--muted); }
   .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+  /* NSE rotator ranking bands: buy list, hold-only buffer, and the rules
+     marking each threshold. Left border keeps the zones readable while
+     scrolling horizontally on mobile. */
+  tr.nse-buy td:first-child { border-left: 3px solid var(--green); }
+  tr.nse-keep td:first-child { border-left: 3px solid var(--amber); }
+  tr.nse-held { background: rgba(31, 111, 235, 0.10); }
+  tr.nse-rule td {
+    color: var(--muted); font-size: 10px; letter-spacing: 0.04em;
+    padding: 3px 8px; background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--border);
+  }
+  .tag {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 1px 5px; border-radius: 3px; background: #243044; color: var(--muted);
+  }
   .account-grid {
     display: grid; gap: 10px;
     grid-template-columns: 1fr;
@@ -132,21 +158,36 @@ const uiHTML = `<!DOCTYPE html>
 <body>
 <header>
   <h1><span>Tradex</span> Ops</h1>
+  <nav class="lanes" id="lanes"></nav>
   <div class="meta header-meta" id="meta">loading…</div>
 </header>
 <div class="banner" id="banner"></div>
 <div class="grid">
-  <section class="full" id="sec-etf">
-    <h2>1 · ASX ETF monitor</h2>
+  <section class="full" id="sec-etf" hidden>
+    <h2>ASX ETF monitor</h2>
     <div id="etf"></div>
   </section>
-  <section class="full" id="sec-nse">
-    <h2>2 · NSE momentum rotator</h2>
+  <section class="full" id="sec-nse" hidden>
+    <h2>NSE momentum rotator</h2>
     <div id="nse"></div>
   </section>
 </div>
 <script>
 const token = new URLSearchParams(location.search).get("token") || "";
+// Which lane this page shows. "/" keeps its historical landing spot on ETF.
+const LANE = location.pathname.replace(/\/+$/, "") === "/nse" ? "nse" : "etf";
+const LANES = [["etf", "/etf", "ASX ETF"], ["nse", "/nse", "NSE rotator"]];
+function renderLanes() {
+  // location.search carries ?token=…; every lane link must keep it or the next
+  // page loads unauthenticated. Escaped because it is attacker-controllable.
+  const q = esc(location.search);
+  document.getElementById("lanes").innerHTML = LANES.map(
+    ([id, href, label]) =>
+      '<a href="' + href + q + '"' + (LANE === id ? ' class="on"' : '') +
+      '>' + esc(label) + '</a>').join("");
+  document.getElementById("sec-" + LANE).hidden = false;
+  document.title = "Tradex · " + (LANE === "nse" ? "NSE rotator" : "ASX ETF");
+}
 const authHeaders = () => {
   const h = {"Accept":"application/json"};
   if (token) h["Authorization"] = "Bearer " + token;
@@ -199,9 +240,11 @@ function esc(s) {
 }
 async function refresh() {
   const cfg = await api("/api/ui-config");
+  // Only the visible lane is fetched — the other endpoint is not just hidden,
+  // it is never requested, so NSE quote lookups stop firing on the ETF page.
   const [etf, nse] = await Promise.all([
-    api("/api/etf").catch(() => ({error: "not available"})),
-    api("/api/nse").catch(() => ({error: "not available"})),
+    LANE === "etf" ? api("/api/etf").catch(() => ({error: "not available"})) : null,
+    LANE === "nse" ? api("/api/nse").catch(() => ({error: "not available"})) : null,
   ]);
   document.getElementById("meta").textContent =
     "tz=" + cfg.reporting_tz +
@@ -314,22 +357,58 @@ async function refresh() {
       }
     }
     const recLabel = nse.month ? ' (' + nse.month + ')' : '';
-    const regime = nse.regime_invested ? "INVESTED" : "CASH — exit all positions";
+    // regime_filter is absent on records written before the filter became
+    // configurable, when it was always on — undefined must read as true.
+    const regimeFilterOn = nse.regime_filter !== false;
+    const regime = nse.regime_invested ? "INVESTED"
+      : regimeFilterOn ? "CASH — exit all positions"
+      : "BELOW EMA200 — staying invested (regime filter off)";
     html += '<div class="meta">Last recommendation' + esc(recLabel) + ': <strong>' + esc(regime) + '</strong>';
     if (nse.nifty_close != null && nse.nifty_ema200 != null) {
       html += ' · Nifty ' + Number(nse.nifty_close).toFixed(0) + ' vs EMA200 ' + Number(nse.nifty_ema200).toFixed(0);
     }
     html += '</div>';
+    // params is absent on recommendations written before the exit-hysteresis
+    // change; every use below falls back to the old single-lookback rendering.
+    const prm = nse.params || {};
+    const topK = prm.top_k || 0, exitN = prm.exit_rank_n || 0;
+    const fastM = prm.lookback_months || 6, slowM = prm.exit_lookback_months || 0;
+    const heldSet = new Set(((nse.portfolio || {}).holdings || []).map(h => h.symbol));
     const ranked = nse.top_ranked || [];
     if (ranked.length) {
       html += '<div class="nse-section">';
-      html += '<h3>Top ' + ranked.length + ' NSE stocks (6m momentum)</h3>';
-      html += '<div class="scroll"><table><thead><tr><th>Rank</th><th>Symbol</th><th>Name</th><th class="num">6m</th><th class="num">Price</th><th class="num">MCap</th></tr></thead><tbody>';
+      if (slowM && exitN) {
+        html += '<h3>Top ' + ranked.length + ' NSE stocks ' +
+          '<span class="meta">buy top ' + topK + ' by ' + fastM + 'm · sell below rank ' +
+          exitN + ' on both ' + fastM + 'm &amp; ' + slowM + 'm</span></h3>';
+      } else {
+        html += '<h3>Top ' + ranked.length + ' NSE stocks (' + fastM + 'm momentum)</h3>';
+      }
+      html += '<div class="scroll"><table><thead><tr><th>Rank</th><th>Symbol</th><th>Name</th><th class="num">' +
+        fastM + 'm</th>' + (slowM ? '<th class="num">' + slowM + 'm</th>' : '') +
+        '<th class="num">Price</th><th class="num">MCap</th></tr></thead><tbody>';
       for (let i = 0; i < ranked.length; i++) {
         const t = ranked[i];
-        html += '<tr><td>' + (i+1) + '</td><td><strong>' + esc(t.symbol) + '</strong></td><td>' + esc(t.company_name || '') +
-          '</td><td class="num ' + cls(t.momentum) + '">' + nseMom(t.momentum) +
-          '</td><td class="num">' + nsePrice(t.last_close) + '</td><td class="num">' + nseMc(t.market_cap_inr) + '</td></tr>';
+        const rank = i + 1;
+        // Row bands make the rule legible: buy zone, hold-only zone, out.
+        let band = '';
+        if (topK && rank <= topK) band = 'nse-buy';
+        else if (exitN && rank <= exitN) band = 'nse-keep';
+        const held = heldSet.has(t.symbol);
+        html += '<tr class="' + band + (held ? ' nse-held' : '') + '"><td>' + rank +
+          '</td><td><strong>' + esc(t.symbol) + '</strong>' + (held ? ' <span class="tag">held</span>' : '') +
+          '</td><td>' + esc(t.company_name || '') +
+          '</td><td class="num ' + cls(t.momentum) + '">' + nseMom(t.momentum) + '</td>' +
+          (slowM ? '<td class="num ' + cls(t.momentum_slow) + '">' + nseMom(t.momentum_slow) + '</td>' : '') +
+          '<td class="num">' + nsePrice(t.last_close) + '</td><td class="num">' + nseMc(t.market_cap_inr) + '</td></tr>';
+        // Threshold rules: after the last buy slot, and after the exit buffer.
+        if (topK && rank === topK && ranked.length > topK) {
+          html += '<tr class="nse-rule"><td colspan="' + (slowM ? 7 : 6) + '">↑ buy list (top ' + topK +
+            ') · ↓ hold only — not bought, but not sold either</td></tr>';
+        }
+        if (exitN && rank === exitN && ranked.length > exitN) {
+          html += '<tr class="nse-rule"><td colspan="' + (slowM ? 7 : 6) + '">↑ kept if held · ↓ sold if held</td></tr>';
+        }
       }
       html += '</tbody></table></div></div>';
     }
@@ -345,7 +424,23 @@ async function refresh() {
       }
       html += '</tbody></table></div></div>';
     }
-    if (nse.holds && nse.holds.length) {
+    // holds_info carries the ranks that explain each hold; older
+    // recommendations only have the plain symbol list.
+    if (nse.holds_info && nse.holds_info.length) {
+      html += '<div class="nse-section">';
+      html += '<h3>Holds <span class="meta">kept while inside rank ' + exitN + ' on either list</span></h3>';
+      html += '<div class="scroll"><table><thead><tr><th>Symbol</th><th class="num">' + fastM +
+        'm rank</th><th class="num">' + slowM + 'm rank</th><th>Kept by</th></tr></thead><tbody>';
+      for (const h of nse.holds_info) {
+        const byFast = h.rank > 0 && exitN && h.rank <= exitN;
+        const bySlow = h.rank_slow > 0 && exitN && h.rank_slow <= exitN;
+        const why = byFast && bySlow ? 'both' : byFast ? fastM + 'm' : bySlow ? slowM + 'm' : '—';
+        html += '<tr><td><strong>' + esc(h.symbol) + '</strong></td><td class="num">' +
+          (h.rank > 0 ? '#' + h.rank : '—') + '</td><td class="num">' +
+          (h.rank_slow > 0 ? '#' + h.rank_slow : '—') + '</td><td>' + esc(why) + '</td></tr>';
+      }
+      html += '</tbody></table></div></div>';
+    } else if (nse.holds && nse.holds.length) {
       html += '<div class="meta">Hold: ' + esc(nse.holds.join(", ")) + '</div>';
     }
     if (nse.warnings && nse.warnings.length) {
@@ -372,6 +467,7 @@ async function loop() {
     setTimeout(loop, 5000);
   }
 }
+renderLanes();
 loop();
 </script>
 </body>
