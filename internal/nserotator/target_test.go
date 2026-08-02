@@ -125,3 +125,73 @@ func TestRankIndexIsOneBased(t *testing.T) {
 		t.Error("unranked symbol should be absent (zero value means unranked)")
 	}
 }
+
+// A seeded book with more qualifying names than slots must shed the weakest by
+// rank, not the ones last in portfolio.json. Pinned to the real 2026-08 run,
+// where file order sold RADICO (6m rank 5) to keep NATIONALUM (6m rank 149).
+func TestBuildTargetCutsOverflowByRankNotFileOrder(t *testing.T) {
+	fast := rankedFrom("LAURUSLABS", "POWERINDIA", "f3", "BHEL", "RADICO",
+		"BHARATFORG", "f7", "CGPOWER", "PREMIERENE", "f10", "NYKAA", "f12",
+		"CUMMINSIND", "f14", "f15", "f16", "f17", "f18", "f19", "f20", "f21",
+		"f22", "f23", "ENRIN", "f25", "f26", "f27", "f28", "f29", "f30")
+	slow := rankedFrom("LAURUSLABS", "NATIONALUM", "BHARATFORG", "s4", "s5",
+		"MCX", "BHEL", "SHRIRAMFIN", "POWERINDIA", "RADICO", "NYKAA", "s12",
+		"s13", "CUMMINSIND", "s15", "s16", "s17", "s18", "s19", "s20", "s21",
+		"s22", "s23", "s24", "s25", "s26", "s27", "s28", "s29", "s30")
+	// portfolio.json order: the three sold by the old rule were simply last.
+	holdings := holdingsOf("LAURUSLABS", "BHEL", "NATIONALUM", "MCX",
+		"BHARATFORG", "SHRIRAMFIN", "CGPOWER", "PREMIERENE", "POWERINDIA",
+		"CUMMINSIND", "NYKAA", "RADICO", "ENRIN")
+
+	got := BuildTarget(fast, slow, holdings, 10, 30)
+	if len(got) != 10 {
+		t.Fatalf("target size = %d, want 10: %v", len(got), got)
+	}
+	inTarget := map[string]bool{}
+	for _, s := range got {
+		inTarget[s] = true
+	}
+	// RADICO (best rank 5) is kept despite sitting second-to-last in the file;
+	// NATIONALUM is kept on its 12m rank of 2, not on its file position of 3.
+	for _, s := range []string{"RADICO", "NATIONALUM"} {
+		if !inTarget[s] {
+			t.Errorf("%s should have been kept on rank: %v", s, got)
+		}
+	}
+	// The three weakest qualifiers go: NYKAA 11/11, CUMMINSIND 13/14, ENRIN 24/-.
+	for _, s := range []string{"NYKAA", "CUMMINSIND", "ENRIN"} {
+		if inTarget[s] {
+			t.Errorf("%s should have been cut as a weakest qualifier: %v", s, got)
+		}
+	}
+	// Nothing inside the entry list may be cut, or the next run would rebuy it.
+	for i, r := range fast {
+		if i >= 10 {
+			break
+		}
+		for _, h := range holdings {
+			if h.Symbol == r.Symbol && !inTarget[r.Symbol] {
+				t.Errorf("%s is held and inside the top-10 entry list but was cut: %v", r.Symbol, got)
+			}
+		}
+	}
+	// Reordering the same names must not change the outcome.
+	shuffled := holdingsOf("RADICO", "NYKAA", "ENRIN", "LAURUSLABS", "BHEL",
+		"NATIONALUM", "MCX", "BHARATFORG", "SHRIRAMFIN", "CGPOWER",
+		"PREMIERENE", "POWERINDIA", "CUMMINSIND")
+	got2 := BuildTarget(fast, slow, shuffled, 10, 30)
+	set := func(ss []string) map[string]bool {
+		m := map[string]bool{}
+		for _, s := range ss {
+			m[s] = true
+		}
+		return m
+	}
+	a, b := set(got), set(got2)
+	for s := range a {
+		if !b[s] {
+			t.Errorf("file order still changes membership: %v vs %v", got, got2)
+			break
+		}
+	}
+}
