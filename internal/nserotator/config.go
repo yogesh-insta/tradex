@@ -41,6 +41,13 @@ type Config struct {
 		// ExcludedSymbols are never ranked or bought (policy blocklist). Held
 		// names still appear in SELL orders when not in the target portfolio.
 		ExcludedSymbols []string `yaml:"excluded_symbols"`
+		// FrozenSymbols are held but untradeable — suspended, illiquid, or
+		// otherwise stuck. They are never ranked, bought, or sold, never
+		// consume one of the TopK slots, and never raise the stale-price
+		// warning; the position is reported so it stays visible. Distinct from
+		// ExcludedSymbols, which yields a SELL every month — useless advice for
+		// a position that cannot be exited.
+		FrozenSymbols []string `yaml:"frozen_symbols"`
 		// ExitLookbackMonths is the slower momentum list that keeps a holding
 		// alive: a name is sold only when it sits outside the top ExitRankN on
 		// BOTH the LookbackMonths and ExitLookbackMonths lists.

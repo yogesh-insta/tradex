@@ -124,6 +124,7 @@ func runOnce(ctx context.Context, cfg *nserotator.Config, log *slog.Logger, forc
 		Force:              force,
 		DriftCheck:         cfg.Rotator.DriftCheck,
 		ExcludedSymbols:    cfg.Rotator.ExcludedSymbols,
+		FrozenSymbols:      cfg.Rotator.FrozenSymbols,
 		ExitLookbackMonths: cfg.Rotator.ExitLookbackMonths,
 		ExitRankN:          cfg.Rotator.ExitRankN,
 		RegimeFilter:       *cfg.Rotator.RegimeFilter, // validate() guarantees non-nil

@@ -56,6 +56,11 @@ func FormatMessage(rec Recommendation, lookbackMonths, emaDays int) string {
 		fmt.Fprintf(&b, "\nHOLD: %s\n", strings.Join(rec.Holds, ", "))
 	}
 
+	if len(rec.Frozen) > 0 {
+		fmt.Fprintf(&b, "\nFROZEN (untradeable — outside the strategy): %s\n",
+			strings.Join(rec.Frozen, ", "))
+	}
+
 	if len(rec.TopRanked) > 0 {
 		if rec.Params.ExitLookbackMonths > 0 {
 			fmt.Fprintf(&b, "\nTop momentum (%dm entry ★ / hold to rank %d):\n",

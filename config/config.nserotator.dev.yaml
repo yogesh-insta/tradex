@@ -24,6 +24,9 @@ nserotator:
     - ADANIGREEN
     - ADANIPORTS
     - ADANIPOWER
+  # Must mirror the Cloud Run config — see frozen_symbols there.
+  frozen_symbols:
+    - ALCODIS
 
 telegram:
   bot_token: ${TELEGRAM_BOT_TOKEN}

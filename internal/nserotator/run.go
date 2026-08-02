@@ -42,6 +42,9 @@ type RunParams struct {
 	Force           bool
 	DriftCheck      bool
 	ExcludedSymbols []string
+	// FrozenSymbols are held but untradeable: no orders either way, no slot
+	// consumed, no stale-price warning. See Config.FrozenSymbols.
+	FrozenSymbols []string
 	// ExitLookbackMonths / ExitRankN drive the exit hysteresis: a holding is
 	// sold only when outside the top ExitRankN on BOTH lookbacks. See
 	// BuildTarget. Zero values fall back to plain top-K rotation.
@@ -208,8 +211,25 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 		// alive by it — the exact opposite of what the blocklist is for.
 		filterPolicyExcluded(scoresSlow, sym)
 	}
+	// Frozen names leave the rankings too, so they are never bought and never
+	// occupy a slot. Unlike the blocklist they are also withheld from
+	// BuildOrders below, so they produce no SELL either.
+	frozen := make(map[string]bool, len(p.FrozenSymbols))
+	for _, sym := range p.FrozenSymbols {
+		sym = strings.ToUpper(strings.TrimSpace(sym))
+		if sym == "" {
+			continue
+		}
+		frozen[sym] = true
+		filterPolicyExcluded(scores, sym)
+		filterPolicyExcluded(scoresSlow, sym)
+	}
 	// Held symbols with stale data are a loud warning (corporate action?).
+	// Frozen names are stale by definition — that is why they are frozen.
 	for _, h := range pf.Holdings {
+		if frozen[h.Symbol] {
+			continue
+		}
 		s, ok := series[h.Symbol]
 		if !ok || Stale(s, now, staleAfter) {
 			warnings = append(warnings, fmt.Sprintf("HELD %s: no fresh price data — possible rename/corporate action", h.Symbol))
@@ -227,7 +247,7 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 	if ShouldHoldEquity(invested, p.RegimeFilter) {
 		target = BuildTarget(ranked, rankedSlow, pf.Holdings, p.TopK, p.ExitRankN)
 	}
-	diff := BuildOrders(pf.Holdings, target, lastClose, pf.TotalCapitalINR, p.TopK)
+	diff := BuildOrders(pf.Holdings, target, lastClose, pf.TotalCapitalINR, p.TopK, frozen)
 
 	// Company name, live price, and market cap for top-ranked list and orders (best-effort).
 	// The displayed list must reach the exit buffer, or a holding kept alive at
@@ -347,6 +367,7 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 		Orders:         append(append([]Order{}, diff.Sells...), diff.Buys...),
 		Holds:          diff.Holds,
 		HoldsInfo:      holdsInfo,
+		Frozen:         diff.Frozen,
 		TopRanked:      topDisplay, // already enriched in place
 		Params: RunParamsRecord{
 			LookbackMonths:     p.LookbackMonths,
