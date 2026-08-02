@@ -32,6 +32,11 @@ nserotator:
     - ADANIGREEN
     - ADANIPORTS
     - ADANIPOWER
+  # Held but untradeable — no orders either way, no slot consumed, no stale
+  # warning. Do NOT move these to excluded_symbols: that advises a SELL every
+  # month for a position that cannot be exited.
+  frozen_symbols:
+    - ALCODIS
 
 telegram:
   bot_token: ${TELEGRAM_BOT_TOKEN}
