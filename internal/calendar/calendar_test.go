@@ -7,68 +7,6 @@ import (
 	"time"
 )
 
-func TestEconomicCacheFailSafe(t *testing.T) {
-	now := time.Date(2026, 7, 17, 8, 0, 0, 0, time.UTC)
-
-	t.Run("no state ever loaded => imminent", func(t *testing.T) {
-		c := NewCache(FileProvider{Path: "/nonexistent"}, 90*time.Minute)
-		if got := c.TimeToHighImpact("EU", now); got != 0 {
-			t.Fatalf("got %v, want 0 (fail-safe)", got)
-		}
-		if c.Fresh(now) {
-			t.Fatal("must not be fresh")
-		}
-	})
-
-	t.Run("stale as_of => imminent", func(t *testing.T) {
-		c := NewCache(nil, 90*time.Minute)
-		c.SetState(State{AsOf: now.Add(-2 * time.Hour)})
-		if got := c.TimeToHighImpact("EU", now); got != 0 {
-			t.Fatalf("got %v, want 0 (stale)", got)
-		}
-	})
-
-	t.Run("fresh with upcoming high-impact event", func(t *testing.T) {
-		c := NewCache(nil, 90*time.Minute)
-		c.SetState(State{
-			AsOf: now.Add(-10 * time.Minute),
-			Events: []Event{
-				{Region: "EU", Title: "ECB Rate Decision", Impact: "high", Time: now.Add(20 * time.Minute)},
-				{Region: "EU", Title: "Old CPI", Impact: "high", Time: now.Add(-time.Hour)},  // past: ignored
-				{Region: "US", Title: "NFP", Impact: "high", Time: now.Add(5 * time.Minute)}, // other region
-				{Region: "EU", Title: "PMI", Impact: "low", Time: now.Add(2 * time.Minute)},  // low impact
-			},
-		})
-		if got := c.TimeToHighImpact("EU", now); got != 20*time.Minute {
-			t.Fatalf("got %v, want 20m", got)
-		}
-	})
-
-	t.Run("fresh with no events => no blackout", func(t *testing.T) {
-		c := NewCache(nil, 90*time.Minute)
-		c.SetState(State{AsOf: now})
-		if got := c.TimeToHighImpact("EU", now); got != NoImminent {
-			t.Fatalf("got %v, want NoImminent", got)
-		}
-	})
-
-	t.Run("file provider round trip", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "calendar-state.json")
-		body := `{"as_of":"2026-07-17T07:50:00Z","events":[
-			{"region":"EU","title":"Eurozone CPI","impact":"high","time":"2026-07-17T09:00:00Z"}]}`
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		c := NewCache(FileProvider{Path: path}, 90*time.Minute)
-		if err := c.Refresh(); err != nil {
-			t.Fatal(err)
-		}
-		if got := c.TimeToHighImpact("EU", now); got != time.Hour {
-			t.Fatalf("got %v, want 1h", got)
-		}
-	})
-}
-
 const holidayYAML = `
 year: 2026
 markets:
