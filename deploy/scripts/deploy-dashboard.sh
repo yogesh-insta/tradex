@@ -12,9 +12,6 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 need() { [[ -n "${!1:-}" ]] || { echo "missing env $1" >&2; exit 1; }; }
 need DASHBOARD_TOKEN
-need OANDA_API_TOKEN
-need OANDA_ACCOUNT_ID_EU
-need OANDA_ACCOUNT_ID_FX
 
 echo "==> project=${PROJECT} region=${REGION}"
 
@@ -44,7 +41,7 @@ gcloud builds submit --project="${PROJECT}" --config=/tmp/tradex-dashboard-cloud
 python3 - <<'PY'
 import os
 from pathlib import Path
-keys = ['OANDA_API_TOKEN', 'OANDA_ACCOUNT_ID_EU', 'OANDA_ACCOUNT_ID_FX', 'DASHBOARD_TOKEN']
+keys = ['DASHBOARD_TOKEN']
 lines = []
 for k in keys:
     v = os.environ[k].replace('\\','\\\\').replace('"','\\"')

@@ -100,45 +100,14 @@ func (c *Config) ValidateDashboard() error {
 	if mode == "bearer" && !d.Mock && d.Auth.Token == "" {
 		add("dashboard.auth.token unresolved (set DASHBOARD_TOKEN) — fail closed")
 	}
-	if !d.Mock {
-		if d.OANDA.Host == "" {
-			add("dashboard.oanda.host (or top-level oanda.host) must be set")
-		}
-		if d.OANDA.Token == "" {
-			add("dashboard.oanda.token unresolved — fail closed")
-		}
-		if len(d.Accounts) == 0 {
-			add("dashboard.accounts empty (configure dashboard.accounts or active top-level accounts)")
-		}
-		for _, a := range d.Accounts {
-			if a.Name == "" {
-				add("dashboard account with empty name")
-			}
-			if a.OANDAID == "" {
-				add("dashboard account %q: oanda_account_id unresolved", a.Name)
-			}
-		}
-		hasCal := d.CalendarFile != "" || d.GCS.CalendarObject != ""
-		if !hasCal {
-			add("dashboard calendar source missing (gcs.calendar_object or calendar_file)")
-		}
-		// OANDA transaction history is the production fallback when the
-		// asynchronous BigQuery trade ledger has not been enabled yet.
-	}
 	if _, err := time.LoadLocation(d.UI.ReportingTZ); err != nil || d.UI.ReportingTZ == "" {
 		add("dashboard.ui.reporting_tz %q is not a valid IANA timezone", d.UI.ReportingTZ)
 	}
-	if d.UI.PLDailyLookbackDays <= 0 {
-		add("dashboard.ui.pl_daily_lookback_days must be > 0")
-	}
-	if d.CacheTTL.Overview <= 0 || d.CacheTTL.Calendar <= 0 || d.CacheTTL.PL <= 0 {
-		add("dashboard.cache_ttl overview/calendar/pl must be > 0")
+	if d.CacheTTL.Overview <= 0 {
+		add("dashboard.cache_ttl.overview must be > 0")
 	}
 	if d.UI.RefreshInterval <= 0 {
 		add("dashboard.ui.refresh_interval must be > 0")
-	}
-	if d.Health.HeartbeatStale <= 0 || d.Health.TickStale <= 0 {
-		add("dashboard.health heartbeat_stale/tick_stale must be > 0")
 	}
 	return errors.Join(errs...)
 }
@@ -366,36 +335,14 @@ func clockSeconds(s string) (int, error) {
 // Redacted returns a human-readable summary of the effective config with all
 // secret material removed, suitable for startup audit logging.
 func (c *Config) Redacted() map[string]any {
-	accounts := make([]map[string]any, 0, len(c.Accounts))
-	for _, a := range c.Accounts {
-		accounts = append(accounts, map[string]any{
-			"name":        a.Name,
-			"account_id":  redactID(a.OANDAID),
-			"instruments": a.Instruments,
-			"strategy":    a.Strategy,
-			"active":      a.Active,
-		})
-	}
 	return map[string]any{
-		"env":         c.Env,
-		"project":     c.Project,
-		"oanda_host":  c.OANDA.Host,
-		"stream_host": c.OANDA.StreamHost,
-		"accounts":    accounts,
-		"instruments": c.ActiveInstruments(),
+		"env":     c.Env,
+		"project": c.Project,
 		"dashboard": map[string]any{
 			"listen":       c.Dashboard.ListenAddr,
 			"mock":         c.Dashboard.Mock,
 			"auth_mode":    c.Dashboard.Auth.Mode,
 			"reporting_tz": c.Dashboard.UI.ReportingTZ,
-			"accounts":     len(c.Dashboard.Accounts),
 		},
 	}
-}
-
-func redactID(id string) string {
-	if len(id) <= 4 {
-		return strings.Repeat("*", len(id))
-	}
-	return strings.Repeat("*", len(id)-4) + id[len(id)-4:]
 }
