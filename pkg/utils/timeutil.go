@@ -36,13 +36,3 @@ func AtClock(ref time.Time, clock string, loc *time.Location) (time.Time, error)
 }
 
 // FloorTo aligns t down to the nearest boundary of d (UTC-based, which matches
-// exchange M5/H1 boundaries: :00/:05 and top of hour).
-func FloorTo(t time.Time, d time.Duration) time.Time {
-	return t.UTC().Truncate(d)
-}
-
-// SameLocalDay reports whether a and b fall on the same calendar day in loc.
-func SameLocalDay(a, b time.Time, loc *time.Location) bool {
-	al, bl := a.In(loc), b.In(loc)
-	return al.Year() == bl.Year() && al.YearDay() == bl.YearDay()
-}
