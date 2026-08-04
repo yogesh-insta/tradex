@@ -56,6 +56,23 @@ market data to execution, then the supporting services and config, then the FX l
 | 17 | [`17-strategy-fx-trld.md`](./17-strategy-fx-trld.md) | FX TRLD `Analyze()` entry matrix → `Signal` |
 | 18 | [`18-fx-risk-profile.md`](./18-fx-risk-profile.md) | FX account gates: one-trade/day, weekend, spread, news |
 | 19 | [`19-fx-validation-backtest.md`](./19-fx-validation-backtest.md) | Soft-target harness design + promotion guidance |
+| 20 | [`20-nse-momentum-rotator.md`](./20-nse-momentum-rotator.md) | NSE (Nifty 200) monthly momentum rotation — advisory-only |
+| 21 | [`21-asx-etf-monitor.md`](./21-asx-etf-monitor.md) | ASX ETF momentum monitor — advisory-only |
+| 22 | [`22-asx-momentum-rotator.md`](./22-asx-momentum-rotator.md) | ASX 200 monthly momentum rotation — advisory-only |
+
+## Advisory lanes (20–22)
+
+Specs 20–22 are **advisory-only** and deliberately outside everything above: no
+broker connectivity, no order placement, no contact with the OANDA trading
+config or the money hot path. They rank, diff against a user-maintained
+portfolio, and report via Telegram plus a dashboard route.
+
+The two rotation lanes (20 NSE, 22 ASX 200) run the *same* strategy and share
+their signal math (`internal/momentum`) and Yahoo client (`internal/yahoo`,
+market-selected by `Suffix`). What legitimately differs is market-specific:
+calendar, currency, universe drift source, and — ASX only — a mandatory
+`min_price_aud` floor guarding against provider back-adjustment artifacts. See
+spec 22 § Data quality; do not port that gate to NSE, whose data is clean.
 
 ## Conventions used in every spec
 

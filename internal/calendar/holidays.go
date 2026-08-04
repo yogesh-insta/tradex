@@ -117,3 +117,25 @@ func (h *Holidays) EarlyClose(t time.Time, market string) (time.Time, bool) {
 	}
 	return at, true
 }
+
+// IsLastTradingDayOfMonth reports whether now (interpreted in the market's
+// exchange-local zone) is the final trading day of its calendar month: today
+// is a trading day and no later day in the month is.
+//
+// Shared by the rotation lanes — each passes its own market key and location
+// (XNSE/Asia/Kolkata, XASX/Australia/Sydney).
+func (h *Holidays) IsLastTradingDayOfMonth(now time.Time, market string, loc *time.Location) bool {
+	local := now.In(loc)
+	if !h.IsTradingDay(local, market) {
+		return false
+	}
+	year, month, day := local.Date()
+	daysInMonth := time.Date(year, month+1, 0, 12, 0, 0, 0, loc).Day()
+	for d := day + 1; d <= daysInMonth; d++ {
+		t := time.Date(year, month, d, 12, 0, 0, 0, loc)
+		if h.IsTradingDay(t, market) {
+			return false
+		}
+	}
+	return true
+}

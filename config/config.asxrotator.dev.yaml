@@ -1,0 +1,31 @@
+# ASX 200 momentum rotator — local dev: state on disk, Telegram from env if set.
+#   go run ./cmd/asxrotator --config config/config.asxrotator.dev.yaml --force
+env: dev
+
+asxrotator:
+  lookback_months: 6
+  top_k: 10
+  # Exit hysteresis: sell only when outside the top exit_rank_n on BOTH
+  # the 6m and 12m lists. exit_rank_n == top_k restores plain rotation.
+  exit_lookback_months: 12
+  exit_rank_n: 30
+  # Must mirror the Cloud Run config — see the long note there. Lowering this
+  # locally would let the back-adjustment artifacts back into the ranking and
+  # make dev runs advise a portfolio prod would never produce.
+  min_price_aud: 1.00
+  regime_ema_days: 200
+  # Must mirror the Cloud Run config, or dev runs advise a different portfolio.
+  regime_filter: false
+  universe_file: config/universe-asx200.yaml
+  holidays_file: config/holidays-asx.yaml
+  market: XASX
+  local_state_dir: data/asxrotator
+  yahoo_timeout_s: 30
+  drift_check: false
+  constituents_url: ""
+  excluded_symbols: []
+  frozen_symbols: []
+
+telegram:
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}

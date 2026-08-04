@@ -1,4 +1,4 @@
-package nserotator
+package yahoo
 
 import (
 	"context"

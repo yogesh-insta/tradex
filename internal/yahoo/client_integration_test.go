@@ -1,6 +1,6 @@
 //go:build integration
 
-package nserotator
+package yahoo
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 )
 
 func TestFetchQuoteDetailsLiveMarketCap(t *testing.T) {
-	c := &YahooClient{Retries: 2, Timeout: 0}
+	c := &YahooClient{Retries: 2, Timeout: 0, Suffix: ".NS"}
 	syms := []string{"TITAN", "BAJFINANCE", "ADANIENSOL"}
 	q := c.FetchQuoteDetails(context.Background(), syms)
 	for _, sym := range syms {
