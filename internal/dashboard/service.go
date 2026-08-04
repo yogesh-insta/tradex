@@ -43,21 +43,57 @@ func NewService(cfg config.DashboardConfig, deps Deps) (*Service, error) {
 	}, nil
 }
 
-// LatestETFReport fetches the most recent ASX ETF monitor report from GCS.
-func (s *Service) LatestETFReport(ctx context.Context) (map[string]any, error) {
-	const prefix = "gs://tradex-demo-state/etfmonitor"
+// latestMonthly fetches <prefix>/<name>-YYYY-MM.json for the current month,
+// falling back to the previous month. A monthly lane writes its file on the
+// last trading day, so for most of any month the current-month object does not
+// exist yet and the fallback is the normal path, not an error case.
+//
+// Returns an {"error": ...} map rather than a Go error: the dashboard renders
+// the message in place, and one missing lane must not fail the whole page.
+func (s *Service) latestMonthly(ctx context.Context, prefix, name, notFoundMsg, parseErrMsg string) map[string]any {
 	now := s.now().UTC()
-	data, err := s.deps.Objects.Fetch(ctx, prefix+"/report-"+now.Format("2006-01")+".json")
+	obj := func(t time.Time) string {
+		return prefix + "/" + name + "-" + t.Format("2006-01") + ".json"
+	}
+	data, err := s.deps.Objects.Fetch(ctx, obj(now))
 	if err != nil {
-		prevMonth := now.AddDate(0, -1, 0)
-		data, err = s.deps.Objects.Fetch(ctx, prefix+"/report-"+prevMonth.Format("2006-01")+".json")
+		data, err = s.deps.Objects.Fetch(ctx, obj(now.AddDate(0, -1, 0)))
 		if err != nil {
-			return map[string]any{"error": "no ETF report found"}, nil
+			return map[string]any{"error": notFoundMsg}
 		}
 	}
 	var report map[string]any
 	if err := json.Unmarshal(data, &report); err != nil {
-		return map[string]any{"error": "failed to parse report"}, nil
+		return map[string]any{"error": parseErrMsg}
+	}
+	return report
+}
+
+// LatestETFReport fetches the most recent ASX ETF monitor report from GCS.
+func (s *Service) LatestETFReport(ctx context.Context) (map[string]any, error) {
+	const prefix = "gs://tradex-demo-state/etfmonitor"
+	return s.latestMonthly(ctx, prefix, "report",
+		"no ETF report found", "failed to parse report"), nil
+}
+
+// LatestASXReport fetches the most recent ASX 200 rotator recommendation from
+// GCS, plus the user-maintained portfolio.
+//
+// Unlike the NSE lane this does not enrich holdings with live quotes: the
+// dashboard's quoter is NSE-wired, and the recommendation already carries
+// last_close per symbol. Adding an ASX quoter is a separate change — better a
+// visibly static mark than one silently priced off the wrong exchange.
+func (s *Service) LatestASXReport(ctx context.Context) (map[string]any, error) {
+	const prefix = "gs://tradex-demo-state/asxrotator"
+	report := s.latestMonthly(ctx, prefix, "recommendation",
+		"no ASX recommendation found", "failed to parse recommendation")
+	if pdata, err := s.deps.Objects.Fetch(ctx, prefix+"/portfolio.json"); err == nil {
+		var portfolio map[string]any
+		if json.Unmarshal(pdata, &portfolio) == nil {
+			report["portfolio"] = portfolio
+		}
+	} else {
+		report["portfolio"] = map[string]any{"error": "portfolio.json not found"}
 	}
 	return report, nil
 }
@@ -65,19 +101,8 @@ func (s *Service) LatestETFReport(ctx context.Context) (map[string]any, error) {
 // LatestNSEReport fetches the most recent NSE momentum rotator recommendation from GCS.
 func (s *Service) LatestNSEReport(ctx context.Context) (map[string]any, error) {
 	const prefix = "gs://tradex-demo-state/nserotator"
-	now := s.now().UTC()
-	data, err := s.deps.Objects.Fetch(ctx, prefix+"/recommendation-"+now.Format("2006-01")+".json")
-	if err != nil {
-		prevMonth := now.AddDate(0, -1, 0)
-		data, err = s.deps.Objects.Fetch(ctx, prefix+"/recommendation-"+prevMonth.Format("2006-01")+".json")
-		if err != nil {
-			return map[string]any{"error": "no NSE recommendation found"}, nil
-		}
-	}
-	var report map[string]any
-	if err := json.Unmarshal(data, &report); err != nil {
-		return map[string]any{"error": "failed to parse recommendation"}, nil
-	}
+	report := s.latestMonthly(ctx, prefix, "recommendation",
+		"no NSE recommendation found", "failed to parse recommendation")
 	if pdata, err := s.deps.Objects.Fetch(ctx, prefix+"/portfolio.json"); err == nil {
 		var portfolio map[string]any
 		if json.Unmarshal(pdata, &portfolio) == nil {

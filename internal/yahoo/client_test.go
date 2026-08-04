@@ -1,4 +1,4 @@
-package nserotator
+package yahoo
 
 import (
 	"context"
@@ -62,6 +62,7 @@ func TestFetchQuoteDetails(t *testing.T) {
 		BaseURL:    srv.URL,
 		Retries:    1,
 		HTTPClient: &http.Client{Jar: jar},
+		Suffix:     ".NS",
 	}
 	quotes := c.FetchQuoteDetails(context.Background(), []string{"TITAN", "BAJFINANCE"})
 	if quotes["TITAN"].CompanyName != "Titan Company Limited" {
@@ -94,7 +95,7 @@ func TestEnsureCrumbToleratesBootstrap404(t *testing.T) {
 	defer srv.Close()
 
 	jar, _ := cookiejar.New(nil)
-	c := &YahooClient{BaseURL: srv.URL, Retries: 1, HTTPClient: &http.Client{Jar: jar}}
+	c := &YahooClient{BaseURL: srv.URL, Retries: 1, HTTPClient: &http.Client{Jar: jar}, Suffix: ".NS"}
 	if _, err := c.getSessionBootstrap(context.Background(), srv.URL+"/bootstrap-404"); err != nil {
 		t.Fatalf("bootstrap 404: %v", err)
 	}
