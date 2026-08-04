@@ -4,11 +4,19 @@ env: prod
 
 asxrotator:
   lookback_months: 6
-  top_k: 10
+  # top_k 5 (not the backtest-optimal 10) is a CAPITAL constraint, not a
+  # strategy view. At A$10,000 ten slots are A$1,000 parcels and flat-fee ASX
+  # brokerage runs ~1% each way on those — the fee drag costs more than the
+  # 2.9 points of CAGR that top 10 earns. Backtest 2011-08..2026-07:
+  #   top 10 / exit 30 : 25.0% CAGR, -30.1% DD, Sharpe 1.11
+  #   top  5 / exit 15 : 22.1% CAGR, -32.8% DD, Sharpe 0.85
+  # Move back to 10 (exit_rank_n 30) once capital supports ~A$2,000 parcels
+  # at ten slots, i.e. around A$20,000.
+  top_k: 5
   # Exit hysteresis: sell only when outside the top exit_rank_n on BOTH the 6m
   # and 12m lists. exit_rank_n == top_k restores plain rotation.
   exit_lookback_months: 12
-  exit_rank_n: 30
+  exit_rank_n: 15
 
   # MANDATORY DATA-QUALITY GATE — do not lower without reading spec 22
   # § Data quality. Yahoo back-adjusts ASX histories for demergers by scaling

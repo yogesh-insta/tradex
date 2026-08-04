@@ -43,6 +43,20 @@ fi
 # against money that does not exist. There is no safe default here, so the
 # deploy stops and asks rather than inventing one.
 if ! gcloud storage ls "${GCS_PREFIX}/portfolio.json" --project="${PROJECT}" >/dev/null 2>&1; then
+  if [[ "${ALLOW_MISSING_PORTFOLIO:-}" == "1" ]]; then
+    # Infrastructure-first deploy: stand the service up now, supply state later.
+    # The lane is inert until portfolio.json exists — every run fails fast on
+    # "portfolio: ... not found" and notifies, which is the correct behaviour
+    # and a standing reminder. It never invents a capital figure.
+    cat >&2 <<EOF
+
+WARNING: ${GCS_PREFIX}/portfolio.json does not exist.
+ALLOW_MISSING_PORTFOLIO=1 — deploying anyway. The service will be LIVE but
+INERT: every run errors until you upload the file. See the end of this script
+for the one command that finishes the job.
+
+EOF
+  else
   cat >&2 <<EOF
 
 ERROR: ${GCS_PREFIX}/portfolio.json does not exist.
@@ -64,10 +78,15 @@ JSON
 Holdings entries look like:
   {"symbol": "BHP", "qty": 120, "avg_price": 41.55}
 
+Re-run with ALLOW_MISSING_PORTFOLIO=1 to deploy the service anyway and add
+the file afterwards; it will be live but inert until you do.
+
 EOF
   exit 1
+  fi
+else
+  echo "==> using existing ${GCS_PREFIX}/portfolio.json"
 fi
-echo "==> using existing ${GCS_PREFIX}/portfolio.json"
 
 echo "==> building image ${IMAGE}"
 cat > /tmp/tradex-asx-cloudbuild.yaml <<EOF
