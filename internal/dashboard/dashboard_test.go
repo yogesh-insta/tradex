@@ -168,7 +168,7 @@ func TestUILanesServeAndStayProtected(t *testing.T) {
 	srv := NewServer(svc, BearerAuth{Token: "secret"}, nil)
 	h := srv.Handler()
 
-	for _, path := range []string{"/", "/etf", "/nse"} {
+	for _, path := range []string{"/", "/etf", "/nse", "/asx"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("Authorization", "Bearer secret")
 		rr := httptest.NewRecorder()
@@ -176,7 +176,7 @@ func TestUILanesServeAndStayProtected(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", path, rr.Code)
 		}
-		for _, want := range []string{`id="sec-etf"`, `id="sec-nse"`, `id="lanes"`} {
+		for _, want := range []string{`id="sec-etf"`, `id="sec-nse"`, `id="sec-asx"`, `id="lanes"`} {
 			if !strings.Contains(rr.Body.String(), want) {
 				t.Errorf("GET %s: body missing %s", path, want)
 			}
@@ -184,7 +184,7 @@ func TestUILanesServeAndStayProtected(t *testing.T) {
 	}
 
 	// Unauthenticated lane requests must be rejected like any other page.
-	for _, path := range []string{"/etf", "/nse"} {
+	for _, path := range []string{"/etf", "/nse", "/asx"} {
 		rr := httptest.NewRecorder()
 		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
 		if rr.Code != http.StatusUnauthorized && rr.Code != http.StatusForbidden {

@@ -39,6 +39,7 @@ func BuildFromConfig(ctx context.Context, cfg *config.Config, log *slog.Logger) 
 		objects = fetcher
 
 		nseQuoter = YahooNSEQuoter{Client: &nserotator.YahooClient{
+			Suffix:  nserotator.YahooSuffix,
 			Timeout: 30 * time.Second,
 			Retries: 3,
 			Log:     log,

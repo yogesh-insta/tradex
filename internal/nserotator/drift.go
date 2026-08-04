@@ -3,7 +3,6 @@ package nserotator
 import (
 	"context"
 	"encoding/csv"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -128,18 +127,4 @@ func DiffUniverse(checkedIn, official []string) (added, removed []string) {
 	sort.Strings(added)
 	sort.Strings(removed)
 	return added, removed
-}
-
-// httpStatusError carries an HTTP status for auth-retry decisions.
-type httpStatusError struct {
-	StatusCode int
-}
-
-func (e *httpStatusError) Error() string {
-	return fmt.Sprintf("HTTP %d", e.StatusCode)
-}
-
-func isAuthHTTP(err error) bool {
-	var he *httpStatusError
-	return errors.As(err, &he) && (he.StatusCode == http.StatusUnauthorized || he.StatusCode == http.StatusForbidden)
 }
