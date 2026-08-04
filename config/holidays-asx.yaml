@@ -1,0 +1,41 @@
+# ASX (Australia) trading holidays — checked-in config per spec 22.
+#
+# BEST-EFFORT for 2026. Australian public holidays that move (Easter, and the
+# holidays that shift to the following Monday when they fall on a weekend) are
+# marked ~VERIFY and MUST be checked against the official ASX list
+# (asx.com.au → About → ASX trading calendar) before relying on month-ends near
+# those dates. The rotator warns every December if this file lacks next year.
+#
+# SCOPE: ASX trading holidays are NATIONAL only. State-specific days
+# (Melbourne Cup, Labour Day, Queen's/King's Birthday in most states, Show Day)
+# do NOT close the exchange and must not appear here — adding one would skip a
+# real trading day and push the month-end run a day early.
+#
+# Impact of an error is bounded, same as the NSE lane: a wrongly-included date
+# delays the run by one day; a wrongly-missing date means the run finds Yahoo
+# data unchanged from the prior session — no corrupt signals, just a possibly
+# earlier-than-ideal ranking.
+
+year: 2026
+
+markets:
+  XASX:                        # Australian Securities Exchange
+    tz: "Australia/Sydney"
+    holidays:
+      - "2026-01-01"           # New Year's Day (Thursday)
+      - "2026-01-26"           # Australia Day (Monday)
+      - "2026-04-03"           # Good Friday (~VERIFY — Easter moves)
+      - "2026-04-06"           # Easter Monday (~VERIFY — Easter moves)
+      - "2026-04-27"           # Anzac Day obs. (25th is a Saturday) (~VERIFY)
+      - "2026-06-08"           # King's Birthday (2nd Monday June, national for ASX)
+      - "2026-12-25"           # Christmas Day (Friday)
+      - "2026-12-28"           # Boxing Day observed (26th is a Saturday) (~VERIFY)
+    # ASX runs half-days on Christmas Eve and New Year's Eve (early close
+    # 14:10 AEDT). The rotator only cares whether a day trades at all — a half
+    # day is still the last trading day of its month — so these are recorded
+    # for completeness, not to exclude the date.
+    half_days:
+      - date: "2026-12-24"     # Christmas Eve
+        close: "14:10:00"
+      - date: "2026-12-31"     # New Year's Eve
+        close: "14:10:00"

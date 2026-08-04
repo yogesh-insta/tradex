@@ -1,0 +1,65 @@
+# ASX 200 momentum rotator — Cloud Run config (docs/specs/22-asx-momentum-rotator.md).
+# Advisory-only: no broker connectivity, no order placement.
+env: prod
+
+asxrotator:
+  lookback_months: 6
+  top_k: 10
+  # Exit hysteresis: sell only when outside the top exit_rank_n on BOTH the 6m
+  # and 12m lists. exit_rank_n == top_k restores plain rotation.
+  exit_lookback_months: 12
+  exit_rank_n: 30
+
+  # MANDATORY DATA-QUALITY GATE — do not lower without reading spec 22
+  # § Data quality. Yahoo back-adjusts ASX histories for demergers by scaling
+  # the whole prior series down; TAH.AX reads A$0.0000 for 103 consecutive
+  # months (Echo 2011, Lottery Corp 2022). Momentum off a ~zero base reads
+  # ~+1800% and ranks #1 every month. The bad-jump screens cannot catch it —
+  # the corrupted series is smooth, just scaled. Backtest 2011-08 to 2026-07,
+  # top_k=10 exit_rank_n=30: floor OFF reads 41-51% CAGR (pure artifact),
+  # floor ON reads 25.0% CAGR / -30.1% max DD / Sharpe 1.11.
+  # Also screens penny stocks whose spreads make the strategy untradeable.
+  min_price_aud: 1.00
+
+  regime_ema_days: 200
+  # Regime filter OFF. Backtest 2011-08 to 2026-07 on this exact config:
+  #   filter OFF  25.0% CAGR / -30.1% max DD / Sharpe 1.11 /  9.6% turnover/mo
+  #   filter ON   14.0% CAGR / -34.4% max DD / Sharpe 0.80 / 22.2% turnover/mo
+  # On this window the filter costs 11 points of CAGR and makes drawdown WORSE
+  # while more than doubling turnover — it is not drawdown insurance here.
+  #
+  # Note this is a DIFFERENT argument from the NSE lane, where the filter at
+  # least bought some drawdown protection for the CAGR it cost. Do not copy
+  # spec 20's reasoning across.
+  #
+  # Caveat: this 15y window contains no GFC-scale bear market. Over 20 years
+  # the filter DID reduce drawdown (-34.4% vs -54.3%). That is an argument for
+  # keeping the flag, not for enabling it. Flip to true to restore the gate.
+  regime_filter: false
+
+  universe_file: config/universe-asx200.yaml
+  holidays_file: config/holidays-asx.yaml
+  market: XASX
+
+  # Universe drift. S&P publishes ASX 200 membership behind a login, so unlike
+  # NSE there is no official free endpoint; point this at an ASX 200 index ETF
+  # holdings CSV (STW, IOZ or A200). Left empty the rotator WARNS every run
+  # rather than silently never checking — a drift check that never fires reads
+  # as reassurance it has not earned. Index rebalances quarterly.
+  drift_check: true
+  constituents_url: ""
+
+  # portfolio.json (user-maintained), heartbeat.json and
+  # recommendation-YYYY-MM.json live under this prefix.
+  gcs_prefix: gs://tradex-demo-state/asxrotator
+  yahoo_timeout_s: 30
+
+  excluded_symbols: []
+  # Held but untradeable — no orders either way, no slot consumed, no stale
+  # warning. Do NOT move these to excluded_symbols: that advises a SELL every
+  # month for a position that cannot be exited.
+  frozen_symbols: []
+
+telegram:
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}

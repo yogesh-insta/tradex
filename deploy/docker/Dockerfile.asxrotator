@@ -1,0 +1,28 @@
+# Cloud Run image for the ASX 200 momentum rotator (spec 22).
+# Cloud Scheduler (weekdays 17:00 Australia/Sydney) → HTTP /run → last-trading-day
+# gate → Yahoo → rank/diff → Telegram → GCS. Advisory-only; no broker connectivity.
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/asxrotator ./cmd/asxrotator
+
+# tzdata needed: the gate runs in Australia/Sydney, which observes DST — unlike
+# the NSE lane's fixed-offset IST, a missing zoneinfo here would shift month-end
+# boundaries for half the year rather than failing outright.
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY --from=build /usr/local/go/lib/time/zoneinfo.zip /zoneinfo.zip
+ENV ZONEINFO=/zoneinfo.zip
+COPY --from=build /out/asxrotator /app/asxrotator
+COPY config/config.asxrotator.cloudrun.yaml /app/config/config.asxrotator.cloudrun.yaml
+COPY config/universe-asx200.yaml /app/config/universe-asx200.yaml
+COPY config/holidays-asx.yaml /app/config/holidays-asx.yaml
+
+EXPOSE 8080
+ENV PORT=8080
+ENTRYPOINT ["/app/asxrotator"]
+CMD ["--config", "config/config.asxrotator.cloudrun.yaml"]

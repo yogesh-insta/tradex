@@ -1,23 +1,30 @@
-package nserotator
+package asxrotator
 
 import (
 	"time"
 
 	"github.com/yogesh-insta/tradex/internal/momentum"
+	"github.com/yogesh-insta/tradex/internal/yahoo"
 )
 
-// Signal math lives in internal/momentum, shared with the ASX lane. This file
-// is the NSE-facing surface: type aliases plus thin wrappers that keep the
-// lane's own JSON-tagged Ranked type (market_cap_inr) and []Holding-based
-// call sites intact. Behaviour is identical to the pre-extraction code —
-// signal_test.go and target_test.go are unchanged and still cross-check
-// fixtures against kite/backtest/momentum_dual.py.
+// Signal math lives in internal/momentum, shared with the NSE lane, so the
+// entry/exit hysteresis has exactly one implementation. This file is the
+// ASX-facing surface: aliases, the lane's own JSON-tagged Ranked type
+// (market_cap_aud), and the min-price gate that has no NSE equivalent.
 
-// Candle and Series are aliases, not new types: existing constructions
-// (Series{Candles: []Candle{...}}) and every yahoo.go call site keep working.
+// DefaultMinPriceAUD is the price floor applied when config omits one.
+// A$1.00 clears the back-adjustment wreckage (see Config.MinPriceAUD) and
+// screens out sub-dollar names whose spreads make the strategy untradeable.
+const DefaultMinPriceAUD = 1.00
+
+// YahooSuffix is the market suffix for ASX symbols.
+const YahooSuffix = ".AX"
+
 type (
-	Candle = momentum.Candle
-	Series = momentum.Series
+	Candle      = momentum.Candle
+	Series      = momentum.Series
+	YahooClient = yahoo.YahooClient
+	QuoteDetail = yahoo.QuoteDetail
 )
 
 // MonthEnds returns the last close of each calendar month, ascending.
@@ -28,16 +35,13 @@ func MomentumReturn(monthEnds []float64, lookbackMonths int) (float64, bool) {
 	return momentum.MomentumReturn(monthEnds, lookbackMonths)
 }
 
-// EMA returns the exponential moving average (span n) of the last element.
-func EMA(closes []float64, n int) (float64, bool) { return momentum.EMA(closes, n) }
-
-// RegimeInvested reports whether the index's last close is above its EMA.
+// RegimeInvested reports whether ^AXJO's last close is above its EMA.
 func RegimeInvested(index Series, emaDays int) (invested bool, lastClose, ema float64, ok bool) {
 	return momentum.RegimeInvested(index, emaDays)
 }
 
 // ShouldHoldEquity reports whether a run builds a target portfolio at all.
-// See docs/specs/20 § Regime filter for why the shipped config turns it off.
+// See docs/specs/22 § Regime filter for why the shipped config turns it off.
 func ShouldHoldEquity(regimeInvested, regimeFilter bool) bool {
 	return momentum.ShouldHoldEquity(regimeInvested, regimeFilter)
 }
@@ -47,40 +51,45 @@ func Stale(s Series, now time.Time, maxAge time.Duration) bool {
 	return momentum.Stale(s, now, maxAge)
 }
 
-// BadJumpUp reports whether any single-day UP move in the last windowDays
-// exceeds maxMove.
+// BadJumpUp reports a single-day UP move above maxMove in the last windowDays.
 func BadJumpUp(s Series, windowDays int, maxMove float64) bool {
 	return momentum.BadJumpUp(s, windowDays, maxMove)
 }
 
-// LargeDownJump reports whether any single-day DOWN move exceeds maxMove.
+// LargeDownJump reports a single-day DOWN move beyond maxMove.
 func LargeDownJump(s Series, windowDays int, maxMove float64) bool {
 	return momentum.LargeDownJump(s, windowDays, maxMove)
 }
 
-// BadJumpWindowDays is how many daily candles the bad-jump screen should cover
-// for a momentum lookback of lookbackMonths.
+// BadJumpWindowDays sizes the jump screen for a lookback in months.
 func BadJumpWindowDays(lookbackMonths int) int {
 	return momentum.BadJumpWindowDays(lookbackMonths)
 }
 
+// BelowMinPrice reports whether the series' latest close is under minPrice —
+// the ASX lane's mandatory data-quality gate. See Config.MinPriceAUD for why
+// the jump screens are not sufficient on this market. minPrice <= 0 disables
+// the screen; an empty series counts as below.
+func BelowMinPrice(s Series, minPrice float64) bool {
+	return momentum.BelowMinPrice(s, minPrice)
+}
+
 // Ranked is one symbol's momentum score as persisted in the recommendation.
-// Stays lane-local: MarketCap is INR here and AUD in the ASX lane, so the JSON
-// contract cannot be shared.
+// Lane-local because MarketCap is AUD here and INR in the NSE lane; sharing
+// the type would mislabel one of them in stored JSON.
 type Ranked struct {
 	Symbol      string  `json:"symbol"`
 	CompanyName string  `json:"company_name,omitempty"`
 	LastClose   float64 `json:"last_close,omitempty"`
 	Momentum    float64 `json:"momentum"`
-	MarketCap   float64 `json:"market_cap_inr,omitempty"` // Yahoo summary; INR for .NS
+	MarketCap   float64 `json:"market_cap_aud,omitempty"` // Yahoo summary; AUD for .AX
 	// MomentumSlow/RankSlow place the same symbol on the exit lookback list.
 	// RankSlow is 1-based; 0 means unranked there (insufficient history).
 	MomentumSlow float64 `json:"momentum_slow,omitempty"`
 	RankSlow     int     `json:"rank_slow,omitempty"`
 }
 
-// Rank sorts eligible symbols by momentum descending; deterministic
-// alphabetical tie-break (spec 20).
+// Rank sorts eligible symbols by momentum descending; alphabetical tie-break.
 func Rank(scores map[string]float64) []Ranked {
 	sorted := momentum.Rank(scores)
 	out := make([]Ranked, 0, len(sorted))
@@ -95,9 +104,7 @@ func RankIndex(ranked []Ranked) map[string]int {
 	return momentum.RankIndex(scoresOf(ranked))
 }
 
-// BuildTarget applies entry/exit hysteresis: enter the top topK on the fast
-// list, exit only when outside the top exitN on BOTH lists. See
-// momentum.BuildTarget for the full contract.
+// BuildTarget applies entry/exit hysteresis; see momentum.BuildTarget.
 func BuildTarget(ranked, rankedSlow []Ranked, holdings []Holding, topK, exitN int) []string {
 	held := make([]string, 0, len(holdings))
 	for _, h := range holdings {
