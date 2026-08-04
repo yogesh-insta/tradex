@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [dashboard, nserotator, etfmonitor]
+        service: [dashboard, nserotator, etfmonitor, asxrotator]
     steps:
       - uses: actions/checkout@v4
 
