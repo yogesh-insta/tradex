@@ -171,7 +171,15 @@ const uiHTML = `<!DOCTYPE html>
   .eq-svg { width: 100%; height: auto; display: block; }
   .legend { display: flex; gap: 14px; margin: 4px 0 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
   .legend i { display: inline-block; width: 12px; height: 2px; margin-right: 6px; vertical-align: middle; }
-  .bar-row { display: grid; grid-template-columns: 7.5rem 1fr 5.5rem; gap: 8px; align-items: center; margin: 4px 0; font-family: var(--mono); font-size: 11px; }
+  .bar-row {
+    display: grid; gap: 10px 12px; align-items: center;
+    margin: 2px 0; padding: 5px 0;
+    font-family: var(--mono); font-size: 11px; min-height: 22px;
+  }
+  .bar-row.alloc { grid-template-columns: 7.5rem minmax(4rem, 1fr) 4.25rem minmax(9rem, auto); }
+  .bar-row.pnl { grid-template-columns: 7.5rem minmax(4rem, 1fr) minmax(9rem, auto); }
+  .bar-row .sym { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-row .num { white-space: nowrap; font-variant-numeric: tabular-nums; }
   .bar-track { height: 8px; background: #243044; border-radius: 4px; overflow: hidden; }
   .bar-fill { height: 100%; background: var(--accent); }
   .bar-fill.pos { background: var(--green); }
@@ -407,9 +415,10 @@ function allocBars(alloc, M) {
   for (const a of alloc.slice(0, 10)) {
     const pct = Math.round((a.weight || 0) * 1000) / 10;
     const width = maxW > 0 ? Math.round((a.weight || 0) / maxW * 100) : 0;
-    html += '<div class="bar-row"><div>' + esc(a.symbol) + "</div>";
+    html += '<div class="bar-row alloc"><div class="sym">' + esc(a.symbol) + "</div>";
     html += '<div class="bar-track"><div class="bar-fill" style="width:' + width + '%"></div></div>';
-    html += '<div class="num">' + pct + "% · " + (a.value ? money(a.value) : "—") + "</div></div>";
+    html += '<div class="num">' + pct + "%</div>";
+    html += '<div class="num">' + (a.value ? money(a.value) : "—") + "</div></div>";
   }
   return html;
 }
@@ -421,7 +430,7 @@ function contribBars(alloc, M) {
   let html = "<h3>P&amp;L contribution</h3>";
   for (const a of rows.slice().sort((x, y) => Math.abs(y.unrealized) - Math.abs(x.unrealized)).slice(0, 10)) {
     const width = Math.round(Math.abs(a.unrealized) / maxAbs * 100);
-    html += '<div class="bar-row"><div>' + esc(a.symbol) + "</div>";
+    html += '<div class="bar-row pnl"><div class="sym">' + esc(a.symbol) + "</div>";
     html += '<div class="bar-track"><div class="bar-fill ' + cls(a.unrealized) + '" style="width:' + width + '%"></div></div>';
     html += '<div class="num ' + cls(a.unrealized) + '">' + money(a.unrealized) + "</div></div>";
   }
@@ -463,15 +472,19 @@ function renderRotator(rec, M) {
       if (!holdings.length) {
         html += '<div class="meta">No positions</div>';
       } else {
-        html += '<div class="scroll"><table><thead><tr><th>Symbol</th><th class="num">Qty</th><th class="num">Avg</th><th class="num">Last</th><th class="num">% vs avg</th><th class="num">Unrealized</th></tr></thead><tbody>';
+        html += '<div class="scroll"><table><thead><tr><th>Symbol</th><th class="num">Qty</th><th class="num">Avg</th><th class="num">Invested</th><th class="num">Last</th><th class="num">Amount</th><th class="num">% vs avg</th><th class="num">Unrealized</th></tr></thead><tbody>';
         for (const h of holdings) {
           const pct = h.pct_vs_avg;
           const unr = h[M.unrealKey];
+          const invested = (h.qty > 0 && h.avg_price > 0) ? h.qty * h.avg_price : null;
+          const amount = (h.qty > 0 && h.last_price > 0) ? h.qty * h.last_price : null;
           html += '<tr><td><strong>' + esc(h.symbol) + '</strong></td><td class="num">' + (h.qty ?? "—") +
             '</td><td class="num">' + M.price(h.avg_price) +
+            '</td><td class="num">' + (invested == null ? "—" : money(invested)) +
             '</td><td class="num">' + M.price(h.last_price) +
+            '</td><td class="num">' + (amount == null ? "—" : money(amount)) +
             '</td><td class="num ' + cls(pct) + '">' + nsePct(pct) +
-            '</td><td class="num ' + cls(unr) + '">' + (unr == null ? "—" : M.price(unr)) +
+            '</td><td class="num ' + cls(unr) + '">' + (unr == null ? "—" : money(unr)) +
             '</td></tr>';
         }
         html += '</tbody></table></div>';
