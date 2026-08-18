@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -24,9 +25,11 @@ func BuildFromConfig(ctx context.Context, cfg *config.Config, log *slog.Logger) 
 
 	var objects ObjectFetcher
 	var nseQuoter NSEQuoter
+	var nseSeries DailyFetcher
+	var etfSeries DailyFetcher
 
 	if d.Mock {
-		objects = mockStack()
+		objects = mockStack(time.Now().UTC())
 	} else {
 		fetcher := FileOrGCSFetcher{}
 		// Both report lanes live on GCS; the client is only built when one of
@@ -38,16 +41,25 @@ func BuildFromConfig(ctx context.Context, cfg *config.Config, log *slog.Logger) 
 		fetcher.GCS = gcs
 		objects = fetcher
 
-		nseQuoter = YahooNSEQuoter{Client: &nserotator.YahooClient{
+		nseClient := &nserotator.YahooClient{
 			Suffix:  nserotator.YahooSuffix,
 			Timeout: 30 * time.Second,
 			Retries: 3,
 			Log:     log,
-		}}
+		}
+		nseQuoter = YahooNSEQuoter{Client: nseClient}
+		nseSeries = nseClient
+		etfSeries = &nserotator.YahooClient{
+			Suffix:  ".AX",
+			Timeout: 30 * time.Second,
+			Retries: 3,
+			Log:     log,
+		}
 	}
 
 	svc, err := NewService(d, Deps{
-		Objects: objects, NSEQuoter: nseQuoter, Log: log,
+		Objects: objects, NSEQuoter: nseQuoter,
+		NSESeries: nseSeries, ETFSeries: etfSeries, Log: log,
 	})
 	if err != nil {
 		return nil, err
@@ -77,10 +89,45 @@ func newAuth(d config.DashboardConfig) (Authenticator, error) {
 	}
 }
 
-func mockStack() ObjectFetcher {
+func mockStack(now time.Time) ObjectFetcher {
 	objects := StaticObjectFetcher{}
-	for uri, body := range mockNSEState(time.Now().UTC()) {
+	for uri, body := range mockNSEState(now) {
+		objects[uri] = body
+	}
+	for uri, body := range mockETFState(now) {
 		objects[uri] = body
 	}
 	return objects
+}
+
+func mockETFState(now time.Time) map[string][]byte {
+	const prefix = "gs://tradex-demo-state/etfmonitor"
+	report := map[string]any{
+		"month":  now.Format("2006-01"),
+		"run_at": now.Format(time.RFC3339),
+		"top": []map[string]any{
+			{"ticker": "SEMI", "name": "Semiconductors", "score": 0.42},
+			{"ticker": "HACK", "name": "Global Cybersecurity", "score": 0.31},
+			{"ticker": "ASIA", "name": "Asia Technology Tigers", "score": 0.28},
+		},
+		"exit_alerts": []any{},
+		"warnings":    []string{"mock data — not a real report"},
+	}
+	holdings := map[string]any{
+		"as_of": now.Format("2006-01-02"),
+		"holdings": []map[string]any{
+			{"ticker": "ASIA", "qty": 44, "avg_price": 0},
+			{"ticker": "CLDD", "qty": 127, "avg_price": 0},
+			{"ticker": "HACK", "qty": 169, "avg_price": 0},
+			{"ticker": "SEMI", "qty": 67, "avg_price": 0},
+		},
+	}
+	repJSON, _ := json.Marshal(report)
+	hJSON, _ := json.Marshal(holdings)
+	eqJSON, _ := json.Marshal(mockEquity("etf", "AUD", now, 0, 7800, 1.0012))
+	return map[string][]byte{
+		prefix + "/report-" + now.Format("2006-01") + ".json": repJSON,
+		prefix + "/holdings.json":                             hJSON,
+		prefix + "/equity-history.json":                       eqJSON,
+	}
 }

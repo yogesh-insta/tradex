@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"cloud.google.com/go/storage"
@@ -38,6 +39,36 @@ func (f FileOrGCSFetcher) Fetch(ctx context.Context, uri string) ([]byte, error)
 	return os.ReadFile(uri)
 }
 
+// Put implements ObjectPutter. GCS writes are the live equity-history path;
+// a local path is for dev. Failures are returned to the caller, which must
+// treat them as best-effort.
+func (f FileOrGCSFetcher) Put(ctx context.Context, uri string, data []byte) error {
+	if uri == "" {
+		return fmt.Errorf("empty object uri")
+	}
+	if strings.HasPrefix(uri, "gs://") {
+		if f.GCS == nil {
+			return fmt.Errorf("gcs client not configured for %s", uri)
+		}
+		bucket, object, err := parseGSURI(uri)
+		if err != nil {
+			return err
+		}
+		w := f.GCS.Bucket(bucket).Object(object).NewWriter(ctx)
+		w.ContentType = "application/json"
+		w.CacheControl = "no-cache"
+		if _, err := w.Write(data); err != nil {
+			_ = w.Close()
+			return fmt.Errorf("gcs write %s: %w", uri, err)
+		}
+		return w.Close()
+	}
+	if err := os.MkdirAll(filepath.Dir(uri), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(uri, data, 0o644)
+}
+
 func parseGSURI(uri string) (bucket, object string, err error) {
 	rest := strings.TrimPrefix(uri, "gs://")
 	i := strings.IndexByte(rest, '/')
@@ -57,4 +88,10 @@ func (s StaticObjectFetcher) Fetch(_ context.Context, uri string) ([]byte, error
 		return nil, fmt.Errorf("object not found: %s", uri)
 	}
 	return b, nil
+}
+
+// Put implements ObjectPutter so tests can assert equity-history writes.
+func (s StaticObjectFetcher) Put(_ context.Context, uri string, data []byte) error {
+	s[uri] = append([]byte(nil), data...)
+	return nil
 }

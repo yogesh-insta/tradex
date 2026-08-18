@@ -1,5 +1,10 @@
 {
-  "as_of": "2026-07-22",
-  "holdings": [],
-  "notes": "Seed file. YOU maintain this — add {ticker, qty, avg_price} for each ASX ETF you hold. The monitor reads it only to raise EXIT alerts when a held fund drops below its 200-day trend. It is never read from a broker and never written by the job."
+  "as_of": "2026-08-18",
+  "holdings": [
+    {"ticker": "ASIA", "qty": 44, "avg_price": 0},
+    {"ticker": "CLDD", "qty": 127, "avg_price": 0},
+    {"ticker": "HACK", "qty": 169, "avg_price": 0},
+    {"ticker": "SEMI", "qty": 67, "avg_price": 0}
+  ],
+  "notes": "From Betashares holdings screenshot 2026-08-18: ASIA $887.79, CLDD $1,937.20, HACK $2,947.18, SEMI $2,475.23. Qty is whole units inferred from Yahoo last (avg_price unknown; the exit rule does not use it). Live book is gs://tradex-demo-state/etfmonitor/holdings.json — deploy-etfmonitor.sh copies this file up only when that object is missing."
 }

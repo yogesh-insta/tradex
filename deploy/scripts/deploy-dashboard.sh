@@ -63,7 +63,7 @@ gcloud run deploy "${SERVICE}" \
   --cpu=1 \
   --min-instances=0 \
   --max-instances=2 \
-  --timeout=30 \
+  --timeout=120 \
   --env-vars-file=/tmp/tradex-dashboard-env.yaml \
   --command=/app/dashboard \
   --args=--config=config/config.dashboard.cloudrun.yaml

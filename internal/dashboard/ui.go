@@ -153,6 +153,29 @@ const uiHTML = `<!DOCTYPE html>
   .bars i.neg { background: var(--red); }
   .err { color: var(--red); font-size: 12px; margin-top: 6px; }
   .footnote { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-top: 6px; }
+  .intel { margin: 12px 0 16px; }
+  .kpis {
+    display: grid; gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 12px;
+  }
+  @media (min-width: 640px) {
+    .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  .kpi .lab {
+    color: var(--muted); font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.04em; margin-bottom: 2px;
+  }
+  .kpi .v { font-family: var(--mono); font-size: 16px; font-weight: 600; }
+  .chart-wrap { margin: 8px 0 12px; }
+  .eq-svg { width: 100%; height: auto; display: block; }
+  .legend { display: flex; gap: 14px; margin: 4px 0 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .legend i { display: inline-block; width: 12px; height: 2px; margin-right: 6px; vertical-align: middle; }
+  .bar-row { display: grid; grid-template-columns: 7.5rem 1fr 5.5rem; gap: 8px; align-items: center; margin: 4px 0; font-family: var(--mono); font-size: 11px; }
+  .bar-track { height: 8px; background: #243044; border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--accent); }
+  .bar-fill.pos { background: var(--green); }
+  .bar-fill.neg { background: var(--red); }
 </style>
 </head>
 <body>
@@ -229,6 +252,10 @@ function nsePrice(v) {
   const n = Number(v);
   return n >= 100 ? "₹" + n.toFixed(0) : "₹" + n.toFixed(2);
 }
+function nseMoney(v) {
+  if (v == null || v === "") return "—";
+  return "₹" + Math.round(Number(v)).toLocaleString("en-IN");
+}
 function nsePct(v) {
   if (v == null || v === "") return "—";
   const pct = Math.round(Number(v) * 1000) / 10;
@@ -270,7 +297,7 @@ const MARKETS = {
     mcapKey: "market_cap_inr", orderValueKey: "approx_value_inr",
     capitalKey: "total_capital_inr", unrealKey: "unrealized_inr",
     costKey: "cost_inr", valueKey: "value_inr",
-    price: nsePrice, mcap: nseMc,
+    price: nsePrice, money: nseMoney, mcap: nseMc,
   },
   asx: {
     label: "ASX", indexLabel: "XJO", indexEMALabel: "EMA200",
@@ -283,6 +310,134 @@ const MARKETS = {
 };
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+function kpi(lab, val, extra) {
+  return '<div class="card kpi"><div class="lab">' + esc(lab) + '</div><div class="v ' + (extra || "") + '">' + val + '</div></div>';
+}
+function intelBlock(eq, M) {
+  if (!eq) return "";
+  const money = M.money || M.price;
+  const pts = eq.points || [];
+  const last = pts.length ? pts[pts.length - 1] : null;
+  let html = '<div class="intel"><h3>Book intelligence</h3>';
+  if (last) {
+    const pnl = last.value - last.cost;
+    const pct = last.cost > 0 ? pnl / last.cost : null;
+    html += '<div class="kpis">';
+    html += kpi("Invested", last.cost > 0 ? money(last.cost) : "—");
+    html += kpi("Market value", money(last.value));
+    html += kpi("Unrealized", last.cost > 0 ? money(pnl) : "—", last.cost > 0 ? cls(pnl) : "");
+    html += kpi("Return", pct == null ? "—" : nsePct(pct), cls(pct));
+    html += "</div>";
+  }
+  if (pts.length >= 2) html += equityChart(pts, eq.events || []);
+  html += allocBars(eq.allocation || [], M);
+  html += contribBars(eq.allocation || [], M);
+  html += followTable(eq.follow_through || []);
+  if (eq.events && eq.events.length) {
+    html += '<div class="meta">Events: ' + eq.events.map(e => esc(e.date) + " " + esc(e.kind) + " — " + esc(e.label)).join(" · ") + "</div>";
+  }
+  if (eq.note) html += '<div class="meta">' + esc(eq.note) + "</div>";
+  html += "</div>";
+  return html;
+}
+function equityChart(pts, events) {
+  const w = 640, h = 200, l = 54, r = 10, t = 10, b = 26;
+  const innerW = w - l - r, innerH = h - t - b;
+  let min = Infinity, max = -Infinity;
+  let hasCost = false;
+  for (const p of pts) {
+    if (p.cost > 0) { hasCost = true; min = Math.min(min, p.cost); max = Math.max(max, p.cost); }
+    if (p.value > 0) { min = Math.min(min, p.value); max = Math.max(max, p.value); }
+  }
+  if (!(max > min)) { max = min + 1; }
+  const pad = (max - min) * 0.08 || 1;
+  min -= pad; max += pad;
+  const xAt = i => l + innerW * i / Math.max(pts.length - 1, 1);
+  const yAt = v => t + innerH * (1 - (v - min) / (max - min));
+  function pathFor(key) {
+    const d = [];
+    for (let i = 0; i < pts.length; i++) {
+      const v = Number(pts[i][key]);
+      if (!(v > 0)) continue;
+      d.push((d.length ? "L" : "M") + xAt(i).toFixed(1) + " " + yAt(v).toFixed(1));
+    }
+    return d.join(" ");
+  }
+  function axisMoney(v) {
+    const n = Math.abs(v);
+    if (n >= 1e7) return (v / 1e7).toFixed(1) + "Cr";
+    if (n >= 1e5) return (v / 1e5).toFixed(1) + "L";
+    if (n >= 1000) return (v / 1000).toFixed(0) + "k";
+    return String(Math.round(v));
+  }
+  let svg = '<svg viewBox="0 0 ' + w + " " + h + '" class="eq-svg" role="img" aria-label="Invested versus market value">';
+  svg += '<line x1="' + l + '" y1="' + t + '" x2="' + l + '" y2="' + (h - b) + '" stroke="#2d3a4d"/>';
+  svg += '<line x1="' + l + '" y1="' + (h - b) + '" x2="' + (w - r) + '" y2="' + (h - b) + '" stroke="#2d3a4d"/>';
+  svg += '<text x="4" y="' + (t + 10) + '" fill="#8b9bb4" font-size="10" font-family="ui-monospace,monospace">' + axisMoney(max) + "</text>";
+  svg += '<text x="4" y="' + (h - b) + '" fill="#8b9bb4" font-size="10" font-family="ui-monospace,monospace">' + axisMoney(min) + "</text>";
+  if (hasCost) svg += '<path d="' + pathFor("cost") + '" fill="none" stroke="#8b9bb4" stroke-width="1.5"/>';
+  svg += '<path d="' + pathFor("value") + '" fill="none" stroke="#3d9cf0" stroke-width="2"/>';
+  for (const e of events) {
+    let idx = -1, best = 1e9;
+    for (let i = 0; i < pts.length; i++) {
+      const diff = Math.abs(Date.parse(pts[i].date) - Date.parse(e.date));
+      if (diff < best) { best = diff; idx = i; }
+    }
+    if (idx < 0) continue;
+    const x = xAt(idx).toFixed(1);
+    const col = e.kind === "algo" ? "#e6b84d" : "#8b9bb4";
+    svg += '<line x1="' + x + '" y1="' + t + '" x2="' + x + '" y2="' + (h - b) + '" stroke="' + col + '" stroke-dasharray="3 3" opacity="0.7"/>';
+  }
+  svg += '<text x="' + l + '" y="' + (h - 8) + '" fill="#8b9bb4" font-size="10" font-family="ui-monospace,monospace">' + esc(pts[0].date) + "</text>";
+  svg += '<text x="' + (w - r) + '" y="' + (h - 8) + '" fill="#8b9bb4" font-size="10" text-anchor="end" font-family="ui-monospace,monospace">' + esc(pts[pts.length - 1].date) + "</text>";
+  svg += "</svg>";
+  let html = '<div class="chart-wrap"><div class="legend">';
+  if (hasCost) html += '<span><i style="background:#8b9bb4"></i>Invested</span>';
+  html += '<span><i style="background:#3d9cf0"></i>Market value</span>';
+  html += '<span><i style="background:#e6b84d"></i>Algo / book events</span></div>';
+  html += svg + "</div>";
+  return html;
+}
+function allocBars(alloc, M) {
+  if (!alloc.length) return "";
+  const money = M.money || M.price;
+  const maxW = Math.max.apply(null, alloc.map(a => a.weight || 0));
+  let html = "<h3>Allocation</h3>";
+  for (const a of alloc.slice(0, 10)) {
+    const pct = Math.round((a.weight || 0) * 1000) / 10;
+    const width = maxW > 0 ? Math.round((a.weight || 0) / maxW * 100) : 0;
+    html += '<div class="bar-row"><div>' + esc(a.symbol) + "</div>";
+    html += '<div class="bar-track"><div class="bar-fill" style="width:' + width + '%"></div></div>';
+    html += '<div class="num">' + pct + "% · " + (a.value ? money(a.value) : "—") + "</div></div>";
+  }
+  return html;
+}
+function contribBars(alloc, M) {
+  const rows = alloc.filter(a => a.unrealized != null);
+  if (!rows.length) return "";
+  const money = M.money || M.price;
+  const maxAbs = Math.max.apply(null, rows.map(a => Math.abs(a.unrealized || 0))) || 1;
+  let html = "<h3>P&amp;L contribution</h3>";
+  for (const a of rows.slice().sort((x, y) => Math.abs(y.unrealized) - Math.abs(x.unrealized)).slice(0, 10)) {
+    const width = Math.round(Math.abs(a.unrealized) / maxAbs * 100);
+    html += '<div class="bar-row"><div>' + esc(a.symbol) + "</div>";
+    html += '<div class="bar-track"><div class="bar-fill ' + cls(a.unrealized) + '" style="width:' + width + '%"></div></div>';
+    html += '<div class="num ' + cls(a.unrealized) + '">' + money(a.unrealized) + "</div></div>";
+  }
+  return html;
+}
+function followTable(rows) {
+  if (!rows.length) return "";
+  const done = rows.filter(r => r.status === "executed").length;
+  let html = "<h3>Algo vs book <span class=\"meta\">last recommendation · " + done + "/" + rows.length + " followed</span></h3>";
+  html += '<div class="scroll"><table><thead><tr><th>Side</th><th>Symbol</th><th class="num">Qty</th><th>Status</th></tr></thead><tbody>';
+  for (const r of rows) {
+    html += "<tr><td>" + esc(r.side) + "</td><td><strong>" + esc(r.symbol) + "</strong></td>";
+    html += '<td class="num">' + (r.qty || "—") + '</td><td class="' + (r.status === "executed" ? "pos" : "neg") + '">' + esc(r.status) + "</td></tr>";
+  }
+  html += "</tbody></table></div>";
+  return html;
 }
 function renderRotator(rec, M) {
   if (!rec) return '';
@@ -338,6 +493,7 @@ function renderRotator(rec, M) {
       html += '</div></div>';
     }
   }
+  html += intelBlock(rec.equity, M);
   const recLabel = rec.month ? ' (' + rec.month + ')' : '';
   // regime_filter is absent on records written before the filter became
   // configurable, when it was always on — undefined must read as true.
@@ -469,6 +625,20 @@ async function refresh() {
     etfHtml = '<div class="empty">' + esc(etf.error) + '</div>';
   } else if (etf) {
     let html = '<div class="etf-container">';
+    const held = etf.holdings || {};
+    if (held.error) {
+      html += '<div class="empty">' + esc(held.error) + '</div>';
+    } else if (held.holdings && held.holdings.length) {
+      html += '<div class="etf-section"><h3>Current holdings <span class="meta">(holdings.json)</span></h3>';
+      html += '<div class="scroll"><table><thead><tr><th>Ticker</th><th class="num">Qty</th><th class="num">Avg</th></tr></thead><tbody>';
+      for (const h of held.holdings) {
+        html += '<tr><td><strong>' + esc(h.ticker || h.symbol) + '</strong></td><td class="num">' +
+          (h.qty ?? '—') + '</td><td class="num">' + (h.avg_price ? asxPrice(h.avg_price) : '—') + '</td></tr>';
+      }
+      html += '</tbody></table></div>';
+      html += '<div class="meta">as of ' + esc(held.as_of || '—') + '</div></div>';
+    }
+    html += intelBlock(etf.equity, MARKETS.asx);
     if (etf.exit_alerts && etf.exit_alerts.length) {
       html += '<div class="etf-section">';
       html += '<h3>Exit Alerts</h3>';

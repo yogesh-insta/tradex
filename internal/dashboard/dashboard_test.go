@@ -124,6 +124,9 @@ func TestUIServesHTML(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "Tradex") {
 		t.Fatal("missing brand")
 	}
+	if !strings.Contains(rr.Body.String(), "Book intelligence") {
+		t.Fatal("missing intelligence block")
+	}
 }
 
 func TestLatestNSEReportIncludesPortfolio(t *testing.T) {

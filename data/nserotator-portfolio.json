@@ -1,20 +1,17 @@
 {
-  "as_of": "2026-07-24",
-  "total_capital_inr": 7600000,
+  "as_of": "2026-08-18",
+  "total_capital_inr": 8300000,
   "holdings": [
     {"symbol": "LAURUSLABS", "qty": 450, "avg_price": 1572.64},
-    {"symbol": "BHEL", "qty": 1500, "avg_price": 418.30},
-    {"symbol": "NATIONALUM", "qty": 1500, "avg_price": 343.17},
-    {"symbol": "MCX", "qty": 200, "avg_price": 2789.00},
-    {"symbol": "BHARATFORG", "qty": 300, "avg_price": 2193.33},
+    {"symbol": "BHEL", "qty": 1900, "avg_price": 417.42},
+    {"symbol": "NATIONALUM", "qty": 1978, "avg_price": 350.77},
+    {"symbol": "MCX", "qty": 300, "avg_price": 2743.04},
+    {"symbol": "BHARATFORG", "qty": 355, "avg_price": 2196.30},
     {"symbol": "SHRIRAMFIN", "qty": 900, "avg_price": 1057.45},
-    {"symbol": "CGPOWER", "qty": 470, "avg_price": 917.00},
-    {"symbol": "PREMIERENE", "qty": 400, "avg_price": 1032.44},
-    {"symbol": "POWERINDIA", "qty": 20, "avg_price": 32230.00},
-    {"symbol": "CUMMINSIND", "qty": 105, "avg_price": 5575.00},
-    {"symbol": "NYKAA", "qty": 1500, "avg_price": 320.00},
-    {"symbol": "RADICO", "qty": 150, "avg_price": 4056.45},
-    {"symbol": "ENRIN", "qty": 150, "avg_price": 3270.00}
+    {"symbol": "CGPOWER", "qty": 892, "avg_price": 896.69},
+    {"symbol": "PREMIERENE", "qty": 750, "avg_price": 1039.94},
+    {"symbol": "POWERINDIA", "qty": 24, "avg_price": 32384.20},
+    {"symbol": "RADICO", "qty": 180, "avg_price": 4139.00}
   ],
-  "notes": "Seed only — the live book is gs://tradex-demo-state/nserotator/portfolio.json; deploy-nserotator.sh copies this file up only when that object is missing. From Kite screenshots 2026-07-24; SHRIRAMFIN LTP not visible so capital uses ~avg. One untradeable legacy position was removed 2026-08-02 and is tracked outside the strategy (see the backup/ prefix in the bucket). Execution and tax decisions are manual."
+  "notes": "Seed only — the live book is gs://tradex-demo-state/nserotator/portfolio.json; deploy-nserotator.sh copies this file up only when that object is missing. Combined Kite (6) + Groww (8) screenshots 2026-08-18; overlapping names use summed qty and cost-weighted avg. Market value ~₹83.03L. ALCODIS omitted (frozen, untradeable, tracked outside the strategy). CUMMINSIND, NYKAA and ENRIN no longer held. Execution and tax decisions are manual."
 }
