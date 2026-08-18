@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"math"
 	"time"
 
 	"github.com/yogesh-insta/tradex/internal/nserotator"
@@ -25,9 +26,39 @@ func mockNSEState(now time.Time) map[string][]byte {
 	if err != nil {
 		return nil
 	}
+	eqJSON, err := json.Marshal(mockEquity("nse", "INR", now, 580000, 545000, 1.0018))
+	if err != nil {
+		return nil
+	}
 	return map[string][]byte{
 		prefix + "/recommendation-" + now.Format("2006-01") + ".json": recJSON,
 		prefix + "/portfolio.json":                                    pfJSON,
+		prefix + "/equity-history.json":                               eqJSON,
+	}
+}
+
+func mockEquity(lane, ccy string, now time.Time, cost, start float64, daily float64) EquityHistory {
+	points := make([]EquityPoint, 0, 40)
+	val := start
+	for i := 45; i >= 0; i-- {
+		d := now.AddDate(0, 0, -i)
+		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+			continue
+		}
+		val *= daily
+		points = append(points, EquityPoint{
+			Date: d.Format("2006-01-02"), Cost: cost, Value: math.Round(val),
+			NHoldings: 10, Priced: 10, Source: "reconstructed",
+		})
+	}
+	return EquityHistory{
+		Lane: lane, Currency: ccy, UpdatedAt: now.Format(time.RFC3339),
+		Note:   "mock equity history",
+		Points: points,
+		Events: []EquityEvent{
+			{Date: now.AddDate(0, 0, -30).Format("2006-01-02"), Kind: "book", Label: "Mock book opened"},
+			{Date: now.AddDate(0, 0, -3).Format("2006-01-02"), Kind: "algo", Label: "SELL TATACHEM, BUY HAL"},
+		},
 	}
 }
 

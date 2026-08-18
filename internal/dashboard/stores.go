@@ -10,3 +10,9 @@ import (
 type ObjectFetcher interface {
 	Fetch(ctx context.Context, uri string) ([]byte, error)
 }
+
+// ObjectPutter is an optional write side for analytics state (equity history).
+// Trading remains read-only; a missing or failing Put must never break the UI.
+type ObjectPutter interface {
+	Put(ctx context.Context, uri string, data []byte) error
+}

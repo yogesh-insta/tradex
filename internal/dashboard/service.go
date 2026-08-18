@@ -13,7 +13,9 @@ import (
 // Deps wires external backends.
 type Deps struct {
 	Objects   ObjectFetcher
-	NSEQuoter NSEQuoter // optional; enriches NSE portfolio with live marks
+	NSEQuoter NSEQuoter    // optional; enriches NSE portfolio with live marks
+	NSESeries DailyFetcher // optional; reconstructs the NSE equity curve
+	ETFSeries DailyFetcher // optional; marks the ETF sleeve on Yahoo .AX
 	Log       *slog.Logger
 }
 
@@ -69,11 +71,27 @@ func (s *Service) latestMonthly(ctx context.Context, prefix, name, notFoundMsg, 
 	return report
 }
 
-// LatestETFReport fetches the most recent ASX ETF monitor report from GCS.
+// LatestETFReport fetches the most recent ASX ETF monitor report from GCS,
+// plus the user-maintained holdings and a marked equity curve.
 func (s *Service) LatestETFReport(ctx context.Context) (map[string]any, error) {
 	const prefix = "gs://tradex-demo-state/etfmonitor"
-	return s.latestMonthly(ctx, prefix, "report",
-		"no ETF report found", "failed to parse report"), nil
+	report := s.latestMonthly(ctx, prefix, "report",
+		"no ETF report found", "failed to parse report")
+	var holdings []bookHolding
+	asOf := ""
+	if pdata, err := s.deps.Objects.Fetch(ctx, prefix+"/holdings.json"); err == nil {
+		var h map[string]any
+		if json.Unmarshal(pdata, &h) == nil {
+			report["holdings"] = h
+			holdings = parseHoldings(h["holdings"])
+			asOf, _ = h["as_of"].(string)
+		}
+	} else {
+		report["holdings"] = map[string]any{"error": "holdings.json not found"}
+	}
+	eq := s.etfEquity(ctx, holdings, asOf)
+	report["equity"] = eq
+	return report, nil
 }
 
 // LatestASXReport fetches the most recent ASX 200 rotator recommendation from
@@ -114,6 +132,8 @@ func (s *Service) LatestNSEReport(ctx context.Context) (map[string]any, error) {
 	} else {
 		report["portfolio"] = map[string]any{"error": "portfolio.json not found"}
 	}
+	eq := s.nseEquity(ctx, report)
+	report["equity"] = eq
 	return report, nil
 }
 
