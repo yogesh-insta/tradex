@@ -87,7 +87,7 @@ const uiHTML = `<!DOCTYPE html>
   .pill.amber { background: #3a3014; color: var(--amber); }
   .pill.red { background: #3a1818; color: var(--red); }
   .pill.unknown { background: #243044; color: var(--muted); }
-  .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+  .empty { color: var(--muted); font-style: italic; padding: 8px 0; overflow-wrap: anywhere; }
   /* NSE rotator ranking bands: buy list, hold-only buffer, and the rules
      marking each threshold. Left border keeps the zones readable while
      scrolling horizontally on mobile. */
@@ -318,6 +318,11 @@ const MARKETS = {
 };
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+function clipWarn(s) {
+  const t = String(s ?? "");
+  if (t.length <= 280) return t;
+  return t.slice(0, 280) + "… (" + t.length + " chars)";
 }
 function kpi(lab, val, extra) {
   return '<div class="card kpi"><div class="lab">' + esc(lab) + '</div><div class="v ' + (extra || "") + '">' + val + '</div></div>';
@@ -609,7 +614,7 @@ function renderRotator(rec, M) {
   if (rec.warnings && rec.warnings.length) {
     html += '<div class="nse-section warnings">';
     for (const w of rec.warnings) {
-      html += '<div class="empty">⚠ ' + esc(w) + '</div>';
+      html += '<div class="empty">⚠ ' + esc(clipWarn(w)) + '</div>';
     }
     html += '</div>';
   }
@@ -688,7 +693,7 @@ async function refresh() {
     if (etf.warnings && etf.warnings.length) {
       html += '<div class="etf-section warnings">';
       for (const w of etf.warnings) {
-        html += '<div class="empty">⚠ ' + esc(w) + '</div>';
+        html += '<div class="empty">⚠ ' + esc(clipWarn(w)) + '</div>';
       }
       html += '</div>';
     }

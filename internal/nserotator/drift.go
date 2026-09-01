@@ -99,12 +99,38 @@ func FetchCompanyNames(ctx context.Context, httpClient *http.Client, url string)
 }
 
 func nseSymbolList(names map[string]string) []string {
+	if len(names) == 0 {
+		// nil, not a non-nil empty slice: callers treat nil as "fetch failed,
+		// skip the drift diff" so we never report every checked-in name as a drop.
+		return nil
+	}
 	out := make([]string, 0, len(names))
 	for sym := range names {
 		out = append(out, sym)
 	}
 	sort.Strings(out)
 	return out
+}
+
+// minOfficialUniverse is the floor below which an "official" Nifty 200 list is
+// treated as a failed fetch rather than a real reconstitution. Matches the
+// row-count guard in parseNSEConstituentsCSV.
+const minOfficialUniverse = 150
+
+func officialListUsable(official []string) bool {
+	return len(official) >= minOfficialUniverse
+}
+
+// formatSymbolSample joins names for a Telegram/dashboard warning. A full
+// Nifty 200 dump (the Aug 2026 failure mode) would blow Telegram's 4096 cap.
+func formatSymbolSample(s []string, max int) string {
+	if len(s) == 0 {
+		return "none"
+	}
+	if max <= 0 || len(s) <= max {
+		return strings.Join(s, ", ")
+	}
+	return fmt.Sprintf("%s, … (%d total)", strings.Join(s[:max], ", "), len(s))
 }
 
 func DiffUniverse(checkedIn, official []string) (added, removed []string) {

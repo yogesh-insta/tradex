@@ -337,11 +337,15 @@ func runCore(ctx context.Context, p RunParams, d Deps, now time.Time, ist *time.
 				official = nil
 			}
 		}
+		if official != nil && !officialListUsable(official) {
+			d.Log.Warn("universe drift check skipped: official list too short", "n", len(official))
+			official = nil
+		}
 		if official != nil {
 			if added, removed := DiffUniverse(p.Universe, official); len(added)+len(removed) > 0 {
 				warnings = append(warnings, fmt.Sprintf(
 					"UNIVERSE DRIFT — update config/universe-nse200.yaml. official adds: %s | official drops: %s",
-					joinOrNone(added), joinOrNone(removed)))
+					formatSymbolSample(added, 20), formatSymbolSample(removed, 20)))
 			}
 		}
 	}
@@ -481,13 +485,6 @@ func head(r []Ranked, n int) []Ranked {
 }
 
 func inIST(t time.Time, loc *time.Location) time.Time { return t.In(loc) }
-
-func joinOrNone(s []string) string {
-	if len(s) == 0 {
-		return "none"
-	}
-	return strings.Join(s, ", ")
-}
 
 func symbolsForQuotes(top []Ranked, diff DiffResult) []string {
 	seen := map[string]bool{}
