@@ -244,6 +244,24 @@ func TestUnconfiguredDriftCheckWarns(t *testing.T) {
 	}
 }
 
+func TestEmptyOfficialListDoesNotDumpUniverse(t *testing.T) {
+	w := driftWarnings(context.Background(), RunParams{
+		DriftCheck: true,
+		Universe:   []string{"BHP", "CBA", "NAB", "WBC", "ANZ"},
+	}, Deps{
+		Log: slog.Default(),
+		FetchOfficial: func(context.Context) ([]string, error) {
+			return []string{}, nil
+		},
+	})
+	if len(w) != 1 || !strings.Contains(w[0], "official list empty") {
+		t.Fatalf("expected empty-list failure, got %v", w)
+	}
+	if strings.Contains(w[0], "BHP") {
+		t.Fatalf("must not list universe names as drops: %v", w)
+	}
+}
+
 func TestFormatMessageShowsRegimeAndFloor(t *testing.T) {
 	off := false
 	msg := FormatMessage(Recommendation{

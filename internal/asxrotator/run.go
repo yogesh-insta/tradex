@@ -409,13 +409,17 @@ func driftWarnings(ctx context.Context, p RunParams, d Deps) []string {
 		d.Log.Warn("universe drift check failed", "error", err)
 		return []string{fmt.Sprintf("universe drift check failed: %v", err)}
 	}
+	if len(official) == 0 {
+		d.Log.Warn("universe drift check skipped: official list empty")
+		return []string{"universe drift check failed: official list empty"}
+	}
 	added, removed := DiffUniverse(p.Universe, official)
 	if len(added)+len(removed) == 0 {
 		return nil
 	}
 	return []string{fmt.Sprintf(
 		"UNIVERSE DRIFT — update config/universe-asx200.yaml. index adds: %s | index drops: %s",
-		joinOrNone(added), joinOrNone(removed))}
+		formatSymbolSample(added, 20), formatSymbolSample(removed, 20))}
 }
 
 func sendWithRetry(ctx context.Context, tg MessageSender, text string) error {
@@ -490,11 +494,14 @@ func head(r []Ranked, n int) []Ranked {
 	return r[:n]
 }
 
-func joinOrNone(s []string) string {
+func formatSymbolSample(s []string, max int) string {
 	if len(s) == 0 {
 		return "none"
 	}
-	return strings.Join(s, ", ")
+	if max <= 0 || len(s) <= max {
+		return strings.Join(s, ", ")
+	}
+	return fmt.Sprintf("%s, … (%d total)", strings.Join(s[:max], ", "), len(s))
 }
 
 func symbolsForQuotes(top []Ranked, diff DiffResult) []string {
