@@ -130,7 +130,7 @@ func (s *Service) etfEquity(ctx context.Context, holdings []bookHolding, asOf st
 	}
 
 	hist.Events = eventsFromBooks(books)
-	hist.Note = "Current sleeve marked on Yahoo daily closes. Qty inferred from the 2026-08-18 screenshot; avg cost unknown so invested = 0 until you fill avg_price."
+	hist.Note = "Current sleeve marked on Yahoo daily closes. Qty and avg_price from Stake holdings (as_of on holdings.json)."
 	hist.UpdatedAt = s.now().UTC().Format(time.RFC3339)
 
 	s.persistHistory(ctx, etfEquityURI, hist)
