@@ -1,6 +1,6 @@
 # Tradex
 
-Cloud utility & analytics suite in Go running on Google Cloud Run.
+Cloud utility and analytics suite in Go, running on Google Cloud Run.
 
 ## Architecture & Retained Services
 
