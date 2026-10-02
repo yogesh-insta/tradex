@@ -1,5 +1,10 @@
 # Tradex
 
+**Stack:** Go, Cloud Run, Cloud Scheduler, Gemini, Telegram
+
+**Skills:** Serverless services, portfolio analytics, scheduled jobs
+
+
 Cloud utility and analytics suite in Go, running on Google Cloud Run.
 
 ## Architecture & Retained Services
