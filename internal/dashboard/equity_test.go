@@ -61,17 +61,16 @@ func TestFollowThrough(t *testing.T) {
 		"BUY|HELD":  "2026-10-30",
 	}
 	got := followThrough(orders, map[string]bool{"KEPT": true, "HELD": true}, first)
-	want := []string{"executed", "pending", "pending", "executed"}
+	// Sorted by first-call date ascending.
+	wantSym := []string{"GONE", "KEPT", "HELD", "NEW"}
+	wantStatus := []string{"executed", "pending", "executed", "pending"}
 	wantDate := []string{"2026-08-31", "2026-09-30", "2026-10-30", "2026-10-30"}
 	if len(got) != 4 {
 		t.Fatalf("len %d", len(got))
 	}
-	for i, w := range want {
-		if got[i].Status != w {
-			t.Errorf("%s %s: status %s want %s", got[i].Side, got[i].Symbol, got[i].Status, w)
-		}
-		if got[i].Date != wantDate[i] {
-			t.Errorf("%s %s: date %q want %s", got[i].Side, got[i].Symbol, got[i].Date, wantDate[i])
+	for i := range wantSym {
+		if got[i].Symbol != wantSym[i] || got[i].Status != wantStatus[i] || got[i].Date != wantDate[i] {
+			t.Errorf("row %d: %+v want %s %s %s", i, got[i], wantSym[i], wantStatus[i], wantDate[i])
 		}
 	}
 }

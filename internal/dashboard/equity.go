@@ -393,6 +393,23 @@ func followThrough(orders []any, held map[string]bool, firstCall map[string]stri
 			Status: status,
 		})
 	}
+	// Oldest first-call date at top; undated rows last. Tie-break side then symbol.
+	sort.SliceStable(out, func(i, j int) bool {
+		di, dj := out[i].Date, out[j].Date
+		if di == "" && dj != "" {
+			return false
+		}
+		if di != "" && dj == "" {
+			return true
+		}
+		if di != dj {
+			return di < dj
+		}
+		if out[i].Side != out[j].Side {
+			return out[i].Side < out[j].Side
+		}
+		return out[i].Symbol < out[j].Symbol
+	})
 	return out
 }
 
