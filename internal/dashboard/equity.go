@@ -29,6 +29,7 @@ type EquityEvent struct {
 
 // FollowOrder is one recommended order vs the current book.
 type FollowOrder struct {
+	Date   string `json:"date,omitempty"` // YYYY-MM-DD call date from recommendation run_at/month
 	Side   string `json:"side"`
 	Symbol string `json:"symbol"`
 	Qty    int64  `json:"qty"`
@@ -356,7 +357,7 @@ func lastCloses(series map[string][]momentum.Candle) map[string]float64 {
 	return out
 }
 
-func followThrough(orders []any, held map[string]bool) []FollowOrder {
+func followThrough(orders []any, held map[string]bool, callDate string) []FollowOrder {
 	out := make([]FollowOrder, 0, len(orders))
 	for _, item := range orders {
 		o, ok := item.(map[string]any)
@@ -381,6 +382,7 @@ func followThrough(orders []any, held map[string]bool) []FollowOrder {
 			}
 		}
 		out = append(out, FollowOrder{
+			Date:   callDate,
 			Side:   strings.ToUpper(side),
 			Symbol: strings.ToUpper(sym),
 			Qty:    int64(qty),
@@ -388,6 +390,25 @@ func followThrough(orders []any, held map[string]bool) []FollowOrder {
 		})
 	}
 	return out
+}
+
+// reportCallDate is the calendar day the rotator issued the recommendation.
+// Prefer run_at (RFC3339); fall back to month (YYYY-MM → YYYY-MM-01).
+func reportCallDate(report map[string]any) string {
+	if report == nil {
+		return ""
+	}
+	if runAt, _ := report["run_at"].(string); runAt != "" {
+		if t, err := time.Parse(time.RFC3339, runAt); err == nil {
+			return t.UTC().Format("2006-01-02")
+		}
+	}
+	if month, _ := report["month"].(string); len(month) == 7 {
+		return month + "-01"
+	} else if len(month) == 10 {
+		return month
+	}
+	return ""
 }
 
 func heldSet(holdings []bookHolding) map[string]bool {
@@ -399,14 +420,7 @@ func heldSet(holdings []bookHolding) map[string]bool {
 }
 
 func algoEventFromReport(report map[string]any) (EquityEvent, bool) {
-	month, _ := report["month"].(string)
-	runAt, _ := report["run_at"].(string)
-	date := month
-	if t, err := time.Parse(time.RFC3339, runAt); err == nil {
-		date = t.UTC().Format("2006-01-02")
-	} else if len(month) == 7 {
-		date = month + "-01"
-	}
+	date := reportCallDate(report)
 	orders, _ := report["orders"].([]any)
 	if date == "" || len(orders) == 0 {
 		return EquityEvent{}, false

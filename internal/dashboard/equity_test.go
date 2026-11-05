@@ -54,7 +54,7 @@ func TestFollowThrough(t *testing.T) {
 		map[string]any{"side": "BUY", "symbol": "NEW", "qty": float64(3)},
 		map[string]any{"side": "BUY", "symbol": "HELD", "qty": float64(1)},
 	}
-	got := followThrough(orders, map[string]bool{"KEPT": true, "HELD": true})
+	got := followThrough(orders, map[string]bool{"KEPT": true, "HELD": true}, "2026-10-31")
 	want := []string{"executed", "pending", "pending", "executed"}
 	if len(got) != 4 {
 		t.Fatalf("len %d", len(got))
@@ -63,6 +63,21 @@ func TestFollowThrough(t *testing.T) {
 		if got[i].Status != w {
 			t.Errorf("%s %s: status %s want %s", got[i].Side, got[i].Symbol, got[i].Status, w)
 		}
+		if got[i].Date != "2026-10-31" {
+			t.Errorf("%s %s: date %q want 2026-10-31", got[i].Side, got[i].Symbol, got[i].Date)
+		}
+	}
+}
+
+func TestReportCallDate(t *testing.T) {
+	if d := reportCallDate(map[string]any{"run_at": "2026-10-31T10:15:00Z", "month": "2026-10"}); d != "2026-10-31" {
+		t.Fatalf("run_at: got %q", d)
+	}
+	if d := reportCallDate(map[string]any{"month": "2026-10"}); d != "2026-10-01" {
+		t.Fatalf("month: got %q", d)
+	}
+	if d := reportCallDate(nil); d != "" {
+		t.Fatalf("nil: got %q", d)
 	}
 }
 

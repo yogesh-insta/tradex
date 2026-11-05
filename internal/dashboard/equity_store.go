@@ -79,7 +79,7 @@ func (s *Service) nseEquity(ctx context.Context, report map[string]any) EquityHi
 		prices := pricesFromHoldingsMap(holdingsAny(pf))
 		hist.Allocation = allocations(liveHoldings, prices)
 		if orders, _ := report["orders"].([]any); len(orders) > 0 {
-			hist.FollowThrough = followThrough(orders, heldSet(liveHoldings))
+			hist.FollowThrough = followThrough(orders, heldSet(liveHoldings), reportCallDate(report))
 		}
 	}
 	if hist.Note == "" {
