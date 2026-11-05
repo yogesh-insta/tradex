@@ -15,10 +15,13 @@ import (
 const (
 	nseEquityURI = "gs://tradex-demo-state/nserotator/equity-history.json"
 	etfEquityURI = "gs://tradex-demo-state/etfmonitor/equity-history.json"
+	nseRecPrefix = "gs://tradex-demo-state/nserotator"
 
-	equityCacheTTL   = 3 * time.Minute
+	equityCacheTTL    = 3 * time.Minute
 	equityHistoryYrs = 1
-	fetchWorkers     = 8
+	fetchWorkers      = 8
+	// How far back to scan recommendation-YYYY-MM.json for first-call dating.
+	nseRecHistoryMonths = 18
 )
 
 // DailyFetcher loads Yahoo daily closes. *yahoo.YahooClient satisfies it.
@@ -79,7 +82,7 @@ func (s *Service) nseEquity(ctx context.Context, report map[string]any) EquityHi
 		prices := pricesFromHoldingsMap(holdingsAny(pf))
 		hist.Allocation = allocations(liveHoldings, prices)
 		if orders, _ := report["orders"].([]any); len(orders) > 0 {
-			hist.FollowThrough = followThrough(orders, heldSet(liveHoldings), reportCallDate(report))
+			hist.FollowThrough = followThrough(orders, heldSet(liveHoldings), s.nseFirstCallDates(ctx, report))
 		}
 	}
 	if hist.Note == "" {
@@ -218,6 +221,41 @@ func (s *Service) dayIn(locName string) string {
 		loc = time.UTC
 	}
 	return s.now().In(loc).Format("2006-01-02")
+}
+
+// nseFirstCallDates loads recent monthly recommendations and returns the
+// earliest date each SIDE|SYMBOL call appeared. Always includes `latest` so a
+// brand-new call still gets dated even if older months fail to load.
+func (s *Service) nseFirstCallDates(ctx context.Context, latest map[string]any) map[string]string {
+	reports := make([]map[string]any, 0, nseRecHistoryMonths+1)
+	if latest != nil {
+		reports = append(reports, latest)
+	}
+	if s.deps.Objects != nil {
+		now := s.now().UTC()
+		seenMonth := map[string]bool{}
+		if m, _ := latest["month"].(string); m != "" {
+			seenMonth[m] = true
+		}
+		for i := 0; i < nseRecHistoryMonths; i++ {
+			t := now.AddDate(0, -i, 0)
+			month := t.Format("2006-01")
+			if seenMonth[month] {
+				continue
+			}
+			raw, err := s.deps.Objects.Fetch(ctx, nseRecPrefix+"/recommendation-"+month+".json")
+			if err != nil || len(raw) == 0 {
+				continue
+			}
+			var report map[string]any
+			if json.Unmarshal(raw, &report) != nil {
+				continue
+			}
+			seenMonth[month] = true
+			reports = append(reports, report)
+		}
+	}
+	return firstCallDates(reports)
 }
 
 func (s *Service) fetchSeries(ctx context.Context, f DailyFetcher, symbols []string) map[string][]momentum.Candle {

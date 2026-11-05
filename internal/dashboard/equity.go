@@ -29,7 +29,9 @@ type EquityEvent struct {
 
 // FollowOrder is one recommended order vs the current book.
 type FollowOrder struct {
-	Date   string `json:"date,omitempty"` // YYYY-MM-DD call date from recommendation run_at/month
+	// Date is when this side+symbol call first appeared in recommendation
+	// history (not the latest rotator cycle that still lists it).
+	Date   string `json:"date,omitempty"` // YYYY-MM-DD
 	Side   string `json:"side"`
 	Symbol string `json:"symbol"`
 	Qty    int64  `json:"qty"`
@@ -357,7 +359,7 @@ func lastCloses(series map[string][]momentum.Candle) map[string]float64 {
 	return out
 }
 
-func followThrough(orders []any, held map[string]bool, callDate string) []FollowOrder {
+func followThrough(orders []any, held map[string]bool, firstCall map[string]string) []FollowOrder {
 	out := make([]FollowOrder, 0, len(orders))
 	for _, item := range orders {
 		o, ok := item.(map[string]any)
@@ -369,9 +371,11 @@ func followThrough(orders []any, held map[string]bool, callDate string) []Follow
 		if side == "" || sym == "" {
 			continue
 		}
+		side = strings.ToUpper(side)
+		sym = strings.ToUpper(sym)
 		qty, _ := jsonNumber(o["qty"])
 		status := "pending"
-		switch strings.ToUpper(side) {
+		switch side {
 		case "SELL":
 			if !held[sym] {
 				status = "executed"
@@ -382,14 +386,18 @@ func followThrough(orders []any, held map[string]bool, callDate string) []Follow
 			}
 		}
 		out = append(out, FollowOrder{
-			Date:   callDate,
-			Side:   strings.ToUpper(side),
-			Symbol: strings.ToUpper(sym),
+			Date:   firstCall[callKey(side, sym)],
+			Side:   side,
+			Symbol: sym,
 			Qty:    int64(qty),
 			Status: status,
 		})
 	}
 	return out
+}
+
+func callKey(side, symbol string) string {
+	return strings.ToUpper(side) + "|" + strings.ToUpper(symbol)
 }
 
 // reportCallDate is the calendar day the rotator issued the recommendation.
@@ -409,6 +417,48 @@ func reportCallDate(report map[string]any) string {
 		return month
 	}
 	return ""
+}
+
+// firstCallDates maps SIDE|SYMBOL → earliest recommendation date that listed
+// that call. Reports may be in any order; later re-listings do not move the date.
+func firstCallDates(reports []map[string]any) map[string]string {
+	type hit struct {
+		key  string
+		date string
+	}
+	var hits []hit
+	for _, report := range reports {
+		date := reportCallDate(report)
+		if date == "" {
+			continue
+		}
+		orders, _ := report["orders"].([]any)
+		for _, item := range orders {
+			o, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			side, _ := o["side"].(string)
+			sym, _ := o["symbol"].(string)
+			if side == "" || sym == "" {
+				continue
+			}
+			hits = append(hits, hit{key: callKey(side, sym), date: date})
+		}
+	}
+	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].date != hits[j].date {
+			return hits[i].date < hits[j].date
+		}
+		return hits[i].key < hits[j].key
+	})
+	out := make(map[string]string, len(hits))
+	for _, h := range hits {
+		if _, ok := out[h.key]; !ok {
+			out[h.key] = h.date
+		}
+	}
+	return out
 }
 
 func heldSet(holdings []bookHolding) map[string]bool {

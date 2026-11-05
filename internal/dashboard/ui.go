@@ -444,12 +444,8 @@ function contribBars(alloc, M) {
 function followTable(rows) {
   if (!rows.length) return "";
   const done = rows.filter(r => r.status === "executed").length;
-  let callDate = "";
-  for (const r of rows) { if (r.date) { callDate = r.date; break; } }
-  let html = "<h3>Algo vs book <span class=\"meta\">last recommendation";
-  if (callDate) html += " · " + esc(callDate);
-  html += " · " + done + "/" + rows.length + " followed</span></h3>";
-  html += '<div class="scroll"><table><thead><tr><th>Date</th><th>Side</th><th>Symbol</th><th class="num">Qty</th><th>Status</th></tr></thead><tbody>';
+  let html = "<h3>Algo vs book <span class=\"meta\">last recommendation · " + done + "/" + rows.length + " followed</span></h3>";
+  html += '<div class="scroll"><table><thead><tr><th>First call</th><th>Side</th><th>Symbol</th><th class="num">Qty</th><th>Status</th></tr></thead><tbody>';
   for (const r of rows) {
     html += "<tr><td class=\"meta\">" + esc(r.date || "—") + "</td><td>" + esc(r.side) + "</td><td><strong>" + esc(r.symbol) + "</strong></td>";
     html += '<td class="num">' + (r.qty || "—") + '</td><td class="' + (r.status === "executed" ? "pos" : "neg") + '">' + esc(r.status) + "</td></tr>";

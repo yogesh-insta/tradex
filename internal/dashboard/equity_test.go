@@ -54,8 +54,15 @@ func TestFollowThrough(t *testing.T) {
 		map[string]any{"side": "BUY", "symbol": "NEW", "qty": float64(3)},
 		map[string]any{"side": "BUY", "symbol": "HELD", "qty": float64(1)},
 	}
-	got := followThrough(orders, map[string]bool{"KEPT": true, "HELD": true}, "2026-10-31")
+	first := map[string]string{
+		"SELL|GONE": "2026-08-31",
+		"SELL|KEPT": "2026-09-30",
+		"BUY|NEW":   "2026-10-30",
+		"BUY|HELD":  "2026-10-30",
+	}
+	got := followThrough(orders, map[string]bool{"KEPT": true, "HELD": true}, first)
 	want := []string{"executed", "pending", "pending", "executed"}
+	wantDate := []string{"2026-08-31", "2026-09-30", "2026-10-30", "2026-10-30"}
 	if len(got) != 4 {
 		t.Fatalf("len %d", len(got))
 	}
@@ -63,8 +70,8 @@ func TestFollowThrough(t *testing.T) {
 		if got[i].Status != w {
 			t.Errorf("%s %s: status %s want %s", got[i].Side, got[i].Symbol, got[i].Status, w)
 		}
-		if got[i].Date != "2026-10-31" {
-			t.Errorf("%s %s: date %q want 2026-10-31", got[i].Side, got[i].Symbol, got[i].Date)
+		if got[i].Date != wantDate[i] {
+			t.Errorf("%s %s: date %q want %s", got[i].Side, got[i].Symbol, got[i].Date, wantDate[i])
 		}
 	}
 }
@@ -78,6 +85,42 @@ func TestReportCallDate(t *testing.T) {
 	}
 	if d := reportCallDate(nil); d != "" {
 		t.Fatalf("nil: got %q", d)
+	}
+}
+
+func TestFirstCallDates(t *testing.T) {
+	got := firstCallDates([]map[string]any{
+		{
+			"run_at": "2026-10-30T04:30:24Z", "month": "2026-10",
+			"orders": []any{
+				map[string]any{"side": "SELL", "symbol": "CGPOWER"},
+				map[string]any{"side": "SELL", "symbol": "PREMIERENE"},
+				map[string]any{"side": "BUY", "symbol": "PAYTM"},
+			},
+		},
+		{
+			"run_at": "2026-09-30T05:30:04Z", "month": "2026-09",
+			"orders": []any{
+				map[string]any{"side": "SELL", "symbol": "PREMIERENE"},
+				map[string]any{"side": "BUY", "symbol": "PAYTM"},
+			},
+		},
+		{
+			"run_at": "2026-08-31T05:30:09Z", "month": "2026-08",
+			"orders": []any{
+				map[string]any{"side": "SELL", "symbol": "CGPOWER"},
+			},
+		},
+	})
+	want := map[string]string{
+		"SELL|CGPOWER":    "2026-08-31",
+		"SELL|PREMIERENE": "2026-09-30",
+		"BUY|PAYTM":       "2026-09-30",
+	}
+	for k, w := range want {
+		if got[k] != w {
+			t.Errorf("%s: got %q want %q", k, got[k], w)
+		}
 	}
 }
 
@@ -138,6 +181,9 @@ func TestLatestNSEReportPersistsEquity(t *testing.T) {
 	}
 	if len(eq.FollowThrough) != 1 || eq.FollowThrough[0].Status != "executed" {
 		t.Fatalf("follow-through: %+v", eq.FollowThrough)
+	}
+	if eq.FollowThrough[0].Date != "2026-08-02" {
+		t.Fatalf("first-call date: %+v", eq.FollowThrough[0])
 	}
 	raw, ok := objects[nseEquityURI]
 	if !ok || len(raw) == 0 {
