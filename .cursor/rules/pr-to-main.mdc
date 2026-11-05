@@ -1,0 +1,18 @@
+---
+description: Never push straight to main; always ship via pull request then merge
+alwaysApply: true
+---
+
+# PR workflow for main
+
+`main` is protected. Do **not** commit or push directly to `main`.
+
+For any code change meant to land on GitHub:
+
+1. Create a feature branch from up-to-date `main`
+2. Commit on that branch
+3. Push the branch and open a PR into `main` with `gh pr create`
+4. Wait for checks if any; then merge the PR (`gh pr merge`) — do not push to `main`
+5. Deploy from the merged `main` commit when deploy is requested
+
+Only skip the PR flow if the user explicitly overrides it for that change.
