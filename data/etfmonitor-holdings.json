@@ -1,8 +1,12 @@
 {
-    "as_of": "2026-01-01",
-    "holdings": [
-      {"ticker": "VAS", "qty": 10, "avg_price": 100.00}
-    ],
-    "notes": "Example seed only. The live book is gs://tradex-demo-state/etfmonitor/holdings.json and is not stored in git."
-  }
-  
+  "as_of": "2026-11-05",
+  "holdings": [
+    {"ticker": "CLDD", "qty": 126.8632, "avg_price": 15.7652},
+    {"ticker": "DRUG", "qty": 650, "avg_price": 9.1847},
+    {"ticker": "HACK", "qty": 169.0872, "avg_price": 17.6266},
+    {"ticker": "IIND", "qty": 800, "avg_price": 9.6501},
+    {"ticker": "QBTC", "qty": 137.7546, "avg_price": 23.4334},
+    {"ticker": "RBTZ", "qty": 102.0928, "avg_price": 14.2204}
+  ],
+  "notes": "ASX ETF book as_of 2026-11-05 (Australia/Melbourne). avg_price inferred from VALUE and RETURN%; unused by exit logic. Live object: gs://tradex-demo-state/etfmonitor/holdings.json — deploy seeds this file only when the GCS object is missing."
+}
